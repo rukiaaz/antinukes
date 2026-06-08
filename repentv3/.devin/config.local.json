@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(ls)",
+      "Exec(cd)",
+      "Exec(dir)",
+      "Exec(python)",
+      "Exec(tasklist)",
+      "Exec(taskkill)",
+      "Exec(net file)",
+      "Exec(findstr)"
+    ]
+  }
+}

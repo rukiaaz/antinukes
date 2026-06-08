@@ -1,0 +1,31 @@
+{
+  "name": "repent",
+  "version": "1.0.0",
+  "description": "A fast, strict, professional Discord anti-nuke bot. Security first. No bloat.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "anti-nuke",
+    "security",
+    "protection"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "mongodb": "^7.2.0",
+    "mongoose": "^8.0.3",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.42",
+    "typescript": "^5.9.3"
+  }
+}

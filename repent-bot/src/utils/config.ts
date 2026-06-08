@@ -1,0 +1,55 @@
+import 'dotenv/config';
+
+export const CONFIG = {
+  TOKEN: process.env.TOKEN ?? '',
+  // Kept for legacy; no longer required for SQLite storage.
+  MONGODB_URI: process.env.MONGODB_URI ?? 'mongodb://localhost:27017/repent',
+  SQLITE_PATH: process.env.SQLITE_PATH ?? './data/repent.sqlite3',
+
+  OWNER_ID: process.env.OWNER_ID ?? '',
+  EMBED_COLOR: 0x2b2d31,
+  PANIC_COLOR: 0xe74c3c,
+  SUCCESS_COLOR: 0x57f287,
+  WARNING_COLOR: 0xfee75c,
+  DEFAULT_TIMEOUT_DURATION: 3600,
+  MAX_ACTION_WINDOW_MS: 60000,
+  BACKUP_INTERVAL_MS: 300000,
+  CLEANUP_INTERVAL_MS: 60000,
+  AUDIT_LOG_FETCH_LIMIT: 10,
+  AUDIT_LOG_MAX_AGE_MS: 10000,
+  DANGEROUS_PERMISSIONS: [
+    'Administrator',
+    'ManageGuild',
+    'ManageRoles',
+    'ManageChannels',
+    'ManageWebhooks',
+    'ManageThreads',
+    'MentionEveryone',
+    'BanMembers',
+    'KickMembers',
+  ],
+} as const;
+
+export const DEFAULT_PROTECTIONS = {
+  channelDelete: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  channelCreate: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  channelUpdate: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  categoryDelete: { enabled: true, threshold: 2, windowSeconds: 10, punishment: 'ban' as const },
+  categoryUpdate: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  roleDelete: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  roleCreate: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  roleUpdate: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  permissionEscalation: { enabled: true, threshold: 1, windowSeconds: 1, punishment: 'ban' as const },
+  webhookCreate: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  webhookDelete: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  webhookUpdate: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  massBan: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  massKick: { enabled: true, threshold: 3, windowSeconds: 10, punishment: 'ban' as const },
+  massTimeout: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  botAdd: { enabled: true, threshold: 2, windowSeconds: 60, punishment: 'ban' as const },
+  emojiDelete: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  emojiCreate: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  stickerDelete: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  stickerCreate: { enabled: true, threshold: 5, windowSeconds: 10, punishment: 'ban' as const },
+  serverUpdate: { enabled: true, threshold: 3, windowSeconds: 30, punishment: 'ban' as const },
+} as const;

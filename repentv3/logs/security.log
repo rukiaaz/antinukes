@@ -1,0 +1,94 @@
+2026-06-08 00:13:47 - SECURITY - Failed to load cog cogs.antinuke
+Traceback (most recent call last):
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 963, in _load_from_module_spec
+    await setup(self)
+  File "D:\antinukes\repentv3\cogs\antinuke.py", line 793, in setup
+    await bot.add_cog(Antinuke(bot))
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 799, in add_cog
+    cog = await cog._inject(self, override=override, guild=guild, guilds=guilds)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\cog.py", line 745, in _inject
+    bot.tree.add_command(command, override=override, guild=guild, guilds=guilds)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\app_commands\tree.py", line 407, in add_command
+    raise CommandAlreadyRegistered(name, None)
+discord.app_commands.errors.CommandAlreadyRegistered: Command 'restore' already registered.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 59, in setup_hook
+    await self.load_extension(cog_name)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 1029, in load_extension
+    await self._load_from_module_spec(spec, name)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 968, in _load_from_module_spec
+    raise errors.ExtensionFailed(key, e) from e
+discord.ext.commands.errors.ExtensionFailed: Extension 'cogs.antinuke' raised an error: CommandAlreadyRegistered: Command 'restore' already registered.
+2026-06-08 00:13:47 - SECURITY - Failed to sync commands
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 66, in setup_hook
+    await self.tree.sync()
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\app_commands\tree.py", line 1134, in sync
+    raise CommandSyncFailure(e, commands) from None
+discord.app_commands.errors.CommandSyncFailure: Failed to upload commands to Discord (HTTP status 400, error code 50035)
+In group 'backup' defined in module 'cogs.backup'
+  In command 'backup restore' defined in function 'Backup.BackupGroup.restore'
+    description: Must be between 1 and 100 in length.
+2026-06-08 00:25:57 - SECURITY - Failed to load cog cogs.antinuke
+Traceback (most recent call last):
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 963, in _load_from_module_spec
+    await setup(self)
+  File "D:\antinukes\repentv3\cogs\antinuke.py", line 793, in setup
+    await bot.add_cog(Antinuke(bot))
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 799, in add_cog
+    cog = await cog._inject(self, override=override, guild=guild, guilds=guilds)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\cog.py", line 745, in _inject
+    bot.tree.add_command(command, override=override, guild=guild, guilds=guilds)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\app_commands\tree.py", line 407, in add_command
+    raise CommandAlreadyRegistered(name, None)
+discord.app_commands.errors.CommandAlreadyRegistered: Command 'antinuke_restore' already registered.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 59, in setup_hook
+    await self.load_extension(cog_name)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 1029, in load_extension
+    await self._load_from_module_spec(spec, name)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 968, in _load_from_module_spec
+    raise errors.ExtensionFailed(key, e) from e
+discord.ext.commands.errors.ExtensionFailed: Extension 'cogs.antinuke' raised an error: CommandAlreadyRegistered: Command 'antinuke_restore' already registered.
+2026-06-08 00:32:50 - SECURITY - Failed to load cog cogs.antinuke
+Traceback (most recent call last):
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 963, in _load_from_module_spec
+    await setup(self)
+  File "D:\antinukes\repentv3\cogs\antinuke.py", line 793, in setup
+    await bot.add_cog(Antinuke(bot))
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 799, in add_cog
+    cog = await cog._inject(self, override=override, guild=guild, guilds=guilds)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\cog.py", line 745, in _inject
+    bot.tree.add_command(command, override=override, guild=guild, guilds=guilds)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\app_commands\tree.py", line 407, in add_command
+    raise CommandAlreadyRegistered(name, None)
+discord.app_commands.errors.CommandAlreadyRegistered: Command 'antinuke_restore' already registered.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 59, in setup_hook
+    await self.load_extension(cog_name)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 1029, in load_extension
+    await self._load_from_module_spec(spec, name)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 968, in _load_from_module_spec
+    raise errors.ExtensionFailed(key, e) from e
+discord.ext.commands.errors.ExtensionFailed: Extension 'cogs.antinuke' raised an error: CommandAlreadyRegistered: Command 'antinuke_restore' already registered.
+2026-06-08 01:22:14 - SECURITY - EVENT: ANTINUKE_TRIGGER | DETAILS: Action: channel_create, Punishment: kick | GUILD: 1512695207206981766 | USER: 1510127231932956672
+2026-06-08 01:22:14 - SECURITY - EVENT: ANTINUKE_TRIGGER | DETAILS: Action: channel_create, Punishment: kick | GUILD: 1512695207206981766 | USER: 1510127231932956672
+2026-06-08 01:22:15 - SECURITY - EVENT: ANTINUKE_TRIGGER | DETAILS: Action: channel_create, Punishment: kick | GUILD: 1512695207206981766 | USER: 1510127231932956672
+2026-06-08 01:22:15 - SECURITY - EVENT: ANTINUKE_TRIGGER | DETAILS: Action: channel_create, Punishment: kick | GUILD: 1512695207206981766 | USER: 1510127231932956672
+2026-06-08 01:36:36 - SECURITY - Channel 1513235120205594854 not found in cache
+2026-06-08 01:36:38 - SECURITY - Channel 1513235120205594854 not found in cache

@@ -1,0 +1,850 @@
+"""Repent - Antinuke System
+
+Hardened Antinuke system protecting against nuke/bulk moderation actions, Webhook threats, and Permission Escalations.
+
+Key behaviors implemented:
+- Instant punish (kick/ban/strip/timeout) on first detection for critical delete actions.
+- Targeted auto-restore from cache ONLY for the specific deleted channel/role IDs.
+- Webhook auto-delete when unwhitelisted user creates them (immediate delete + instant punish).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Dict, Set
+from collections import deque
+
+import discord
+from discord.ext import commands
+
+from config import DEFAULT_PUNISHMENT, OWNER_ID
+from database import (
+    add_punished_user,
+    get_whitelist_entry,
+    get_guild,
+    get_cached_roles,
+    get_cached_channels,
+    remove_punished_user,
+    get_punished_users,
+    log_action,
+    get_antinuke_threshold,
+)
+from utils.embeds import antinuke_embed, error_embed, info_embed, success_embed
+from utils.cache import snapshot_guild
+from utils.logger import get_logger
+
+
+class InMemoryRateTracker:
+    """Fast, in-memory sliding window rate tracker."""
+
+    def __init__(self):
+        # guild_id -> user_id -> action_type -> deque[datetime]
+        self._tracks: Dict[int, Dict[int, Dict[str, deque]]] = {}
+
+    def add_event(self, guild_id: int, user_id: int, action_type: str) -> None:
+        self._tracks.setdefault(guild_id, {}).setdefault(user_id, {}).setdefault(action_type, deque()).append(
+            datetime.now(timezone.utc)
+        )
+
+    def count_events(self, guild_id: int, user_id: int, action_type: str, window_seconds: int) -> int:
+        guild_tracks = self._tracks.get(guild_id)
+        if not guild_tracks:
+            return 0
+        user_tracks = guild_tracks.get(user_id)
+        if not user_tracks:
+            return 0
+        events = user_tracks.get(action_type)
+        if not events:
+            return 0
+
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+        while events and events[0] <= cutoff:
+            events.popleft()
+
+        return len(events)
+
+    def clear_events(self, guild_id: int, user_id: int, action_type: str) -> None:
+        guild_tracks = self._tracks.get(guild_id)
+        if not guild_tracks:
+            return
+        user_tracks = guild_tracks.get(user_id)
+        if not user_tracks:
+            return
+        events = user_tracks.get(action_type)
+        if events is not None:
+            events.clear()
+
+
+class Antinuke(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self._locks: Dict[int, asyncio.Lock] = {}
+        self.rate_tracker = InMemoryRateTracker()
+        # Store processed entries with timestamps for memory cleanup: {entry_id: datetime}
+        self._processed_entries: Dict[int, datetime] = {}
+        self._cleanup_task = None
+        self.logger = get_logger()
+
+    def _get_guild_lock(self, guild_id: int) -> asyncio.Lock:
+        self._locks.setdefault(guild_id, asyncio.Lock())
+        return self._locks[guild_id]
+
+    async def cog_load(self):
+        """Start the cleanup task when cog is loaded."""
+        self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+    async def cog_unload(self):
+        """Stop the cleanup task when cog is unloaded."""
+        if self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+
+    async def _cleanup_loop(self):
+        """Periodically clean up old processed entries to prevent memory leaks."""
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            try:
+                await asyncio.sleep(300)  # Clean up every 5 minutes
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)  # Remove entries older than 30 minutes
+                old_entries = [eid for eid, timestamp in self._processed_entries.items() if timestamp < cutoff]
+                for eid in old_entries:
+                    del self._processed_entries[eid]
+                if old_entries:
+                    self.logger.debug(f"Cleaned up {len(old_entries)} old processed entries")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error("Error in antinuke cleanup loop", exc_info=True)
+
+    async def _is_whitelisted(self, guild_id: int, user_id: int) -> bool:
+        if user_id == OWNER_ID:
+            return True
+        if self.bot.user and user_id == self.bot.user.id:
+            return True
+
+        guild = self.bot.get_guild(guild_id)
+        if guild and guild.owner_id == user_id:
+            return True
+
+        entry = await get_whitelist_entry(guild_id, user_id)
+        return bool(entry and entry.get("trust_level", 0) >= 2)
+
+    async def _check_threshold(self, guild_id: int, user_id: int, action_type: str) -> bool:
+        max_count, window = await get_antinuke_threshold(guild_id, action_type)
+        self.rate_tracker.add_event(guild_id, user_id, action_type)
+        count = self.rate_tracker.count_events(guild_id, user_id, action_type, window)
+        return count > max_count
+
+    async def _apply_punishment(self, guild: discord.Guild, member: discord.Member, punishment: str, reason: str) -> None:
+        try:
+            if punishment == "ban":
+                await guild.ban(member, reason=reason, delete_message_days=0)
+            elif punishment == "kick":
+                await guild.kick(member, reason=reason)
+            elif punishment == "strip":
+                bot_member = guild.me
+                roles_to_remove = [
+                    role
+                    for role in member.roles
+                    if role < bot_member.top_role and role != guild.default_role and not role.managed
+                ]
+                await member.remove_roles(*roles_to_remove, reason=reason)
+                if member.voice and member.voice.channel:
+                    await member.edit(deafen=True, reason=reason)
+            elif punishment == "timeout":
+                until = datetime.now(timezone.utc) + timedelta(days=28)
+                await member.timeout(until, reason=reason)
+        except Exception:
+            # Best-effort only
+            try:
+                owner = guild.get_member(guild.owner_id)
+                if owner:
+                    await owner.send(
+                        f"⚠️ **{guild.name}**: I tried to punish **{member}** (`{member.id}`) for {punishment} but I lack permissions."
+                    )
+            except Exception:
+                pass
+
+    async def _notify_owner(self, guild: discord.Guild, embed: discord.Embed) -> None:
+        try:
+            owner = guild.get_member(guild.owner_id)
+            if owner:
+                await owner.send(embed=embed)
+        except Exception:
+            pass
+
+    async def _log_to_channel(self, guild: discord.Guild, embed: discord.Embed) -> None:
+        try:
+            settings = await get_guild(guild.id)
+            log_ch_id = settings.get("log_channel", 0)
+            if not log_ch_id:
+                return
+            ch = guild.get_channel(log_ch_id)
+            if not ch:
+                return
+            await ch.send(embed=embed)
+        except Exception:
+            pass
+
+    async def _delete_webhook_if_unauthorized(self, guild: discord.Guild, adder_id: int, webhook_id: int) -> None:
+        if await self._is_whitelisted(guild.id, adder_id):
+            return
+        try:
+            webhooks = await guild.webhooks()
+            for w in webhooks:
+                if getattr(w, "id", None) == webhook_id:
+                    await w.delete(reason="[Repent Antinuke] Unauthorized webhook create")
+                    return
+        except Exception:
+            pass
+
+    async def _delete_all_user_webhooks(self, guild: discord.Guild, user_id: int) -> None:
+        try:
+            webhooks = await guild.webhooks()
+            deleted_count = 0
+            for w in webhooks:
+                creator = getattr(w, "user", None) or getattr(w, "creator", None)
+                if creator and creator.id == user_id:
+                    await w.delete(reason=f"[Repent Antinuke] Webhook cleanup for punished user {user_id}")
+                    deleted_count += 1
+            if deleted_count:
+                self.logger.security("WEBHOOK_CLEANUP", f"Deleted {deleted_count} webhooks created by user {user_id}", user_id=user_id)
+        except Exception:
+            pass
+
+    async def _handle_violation(self, guild: discord.Guild, user_id: int, action_type: str, target_desc: str = "") -> None:
+        # Security: Check whitelist BEFORE acquiring lock to prevent TOCTOU race condition
+        if await self._is_whitelisted(guild.id, user_id):
+            return
+        
+        async with self._get_guild_lock(guild.id):
+            # Double-check whitelist inside lock for absolute safety
+            if await self._is_whitelisted(guild.id, user_id):
+                return
+
+            settings = await get_guild(guild.id)
+            if not settings.get("antinuke_enabled", 1):
+                return
+
+            member = guild.get_member(user_id) or None
+            if not member:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except Exception:
+                    return
+
+            punishment = settings.get("punishment", DEFAULT_PUNISHMENT)
+            reason = f"[Repent Antinuke] {action_type} threshold exceeded"
+
+            await self._apply_punishment(guild, member, punishment, reason)
+            await add_punished_user(guild.id, user_id, reason, self.bot.user.id if self.bot.user else 0, punishment)
+
+            await self._delete_all_user_webhooks(guild, user_id)
+
+            await log_action(
+                guild.id,
+                "antinuke_trigger",
+                user_id,
+                {"action_type": action_type, "punishment": punishment, "target": target_desc},
+            )
+            
+            # Log to security system
+            self.logger.antinuke_trigger(action_type, guild.id, user_id, punishment)
+
+            embed = antinuke_embed(
+                action=action_type,
+                target=target_desc or "Server",
+                responsible=f"{member.mention} (`{member.id}`)",
+                punishment=punishment,
+                guild=guild,
+            )
+
+            await self._notify_owner(guild, embed)
+            await self._log_to_channel(guild, embed)
+
+            self.rate_tracker.clear_events(guild.id, user_id, action_type)
+
+    async def _handle_instant_punishment(self, guild: discord.Guild, user_id: int, action_type: str, target_desc: str = "") -> None:
+        async with self._get_guild_lock(guild.id):
+            if await self._is_whitelisted(guild.id, user_id):
+                return
+
+            settings = await get_guild(guild.id)
+            if not settings.get("antinuke_enabled", 1):
+                return
+
+            member = guild.get_member(user_id) or None
+            if not member:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except Exception:
+                    return
+
+            punishment = settings.get("punishment", DEFAULT_PUNISHMENT)
+            reason = f"[Repent Antinuke] Instant Punishment: {target_desc}"
+
+            await self._apply_punishment(guild, member, punishment, reason)
+            await add_punished_user(guild.id, user_id, reason, self.bot.user.id if self.bot.user else 0, punishment)
+
+            await self._delete_all_user_webhooks(guild, user_id)
+
+            await log_action(
+                guild.id,
+                "antinuke_trigger_instant",
+                user_id,
+                {"action_type": action_type, "punishment": punishment, "target": target_desc},
+            )
+
+            embed = antinuke_embed(
+                action=action_type,
+                target=target_desc or "Server",
+                responsible=f"{member.mention} (`{member.id}`)",
+                punishment=punishment,
+                guild=guild,
+            )
+            embed.title = "🚨 Instant Security Punishment"
+            embed.description = (
+                f"**Reason:** {target_desc}"
+                f"\n**Responsible User:** {member.mention} (`{member.id}`)"
+                f"\n**Punishment:** {punishment}"
+            )
+
+            await self._notify_owner(guild, embed)
+            await self._log_to_channel(guild, embed)
+
+    def _is_dangerous_role(self, role: discord.Role) -> bool:
+        from config import DANGEROUS_PERMISSIONS
+
+        for perm in DANGEROUS_PERMISSIONS:
+            if getattr(role.permissions, perm, False):
+                return True
+        return False
+
+    async def _auto_restore_channel(self, guild: discord.Guild, channel_id: int) -> bool:
+        """Restore a single channel from cache with full settings including overwrites."""
+        try:
+            cached_channels = await get_cached_channels(guild.id)
+            channel_data = next((c for c in cached_channels if int(c.get("channel_id")) == channel_id), None)
+            
+            if not channel_data:
+                self.logger.warning(f"Channel {channel_id} not found in cache")
+                return False
+            
+            # Check if channel already exists (might have been restored manually)
+            if guild.get_channel(channel_id):
+                return False
+            
+            channel_type = channel_data.get("type", 0)
+            category_id = channel_data.get("category_id", 0) or 0
+            category = guild.get_channel(category_id) if category_id else None
+            
+            # Parse overwrites from JSON
+            overwrites = self._parse_overwrites(guild, channel_data.get("json_overwrites", "{}"))
+            
+            kwargs = {
+                "name": channel_data.get("name", "restored"),
+                "category": category,
+                "position": channel_data.get("position", 0),
+                "overwrites": overwrites,
+                "reason": "[Repent] Auto-restore deleted channel",
+            }
+            
+            # Type-specific settings
+            if channel_type == 0:  # Text channel
+                kwargs.update({
+                    "topic": channel_data.get("topic", "") or None,
+                    "nsfw": bool(channel_data.get("nsfw", 0)),
+                    "slowmode_delay": channel_data.get("slowmode", 0) or 0,
+                })
+                await guild.create_text_channel(**kwargs)
+            elif channel_type == 2:  # Voice channel
+                await guild.create_voice_channel(**kwargs)
+            elif channel_type == 4:  # Category
+                kwargs.pop("category", None)  # Categories don't have categories
+                await guild.create_category(**kwargs)
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to auto-restore channel {channel_id}: {e}", exc_info=True)
+            return False
+    
+    def _parse_overwrites(self, guild: discord.Guild, overwrites_json: str) -> dict:
+        """Parse permission overwrites from JSON and convert to Discord objects."""
+        try:
+            overwrites_dict = json.loads(overwrites_json)
+            overwrites = {}
+            
+            for target_id_str, o_data in overwrites_dict.items():
+                target_id = int(target_id_str)
+                target = None
+                
+                if o_data.get("type") == "role":
+                    target = guild.get_role(target_id)
+                else:  # member
+                    target = guild.get_member(target_id)
+                    if not target:
+                        continue  # Skip if member not found
+                
+                if target:
+                    overwrites[target] = discord.PermissionOverwrite.from_pair(
+                        discord.Permissions(o_data.get("allow", 0)),
+                        discord.Permissions(o_data.get("deny", 0)),
+                    )
+            
+            return overwrites
+        except Exception:
+            return {}
+    
+    async def _auto_restore_from_cache(
+        self,
+        guild: discord.Guild,
+        only_channel_ids: Optional[Set[int]] = None,
+        only_role_ids: Optional[Set[int]] = None,
+    ) -> None:
+        """Best-effort restore channels + roles from cache.
+
+        If only_channel_ids / only_role_ids are provided, restore ONLY those missing.
+        """
+        try:
+            # Restore roles if specified
+            if only_role_ids:
+                await self._restore_roles(guild, only_role_ids)
+            
+            # Restore channels if specified
+            if only_channel_ids:
+                for channel_id in only_channel_ids:
+                    await self._auto_restore_channel(guild, channel_id)
+        except Exception as e:
+            self.logger.error(f"Auto-restore from cache failed: {e}", exc_info=True)
+    
+    async def _restore_roles(self, guild: discord.Guild, role_ids: Set[int]) -> None:
+        """Restore specific roles from cache."""
+        try:
+            cached_roles = await get_cached_roles(guild.id)
+            existing_roles = {r.id for r in guild.roles}
+            
+            for cr in cached_roles:
+                role_id = cr.get("role_id")
+                if role_id not in role_ids or role_id in existing_roles or role_id == guild.default_role.id:
+                    continue
+                
+                await guild.create_role(
+                    name=cr.get("name", "restored-role"),
+                    permissions=discord.Permissions(cr.get("permissions", 0)),
+                    color=discord.Color(cr.get("color", 0)),
+                    hoist=bool(cr.get("hoist", 0)),
+                    mentionable=bool(cr.get("mentionable", 0)),
+                    position=cr.get("position", 0),
+                    reason="[Repent] Auto-restore after antinuke trigger",
+                )
+        except Exception as e:
+            self.logger.error(f"Failed to restore roles: {e}", exc_info=True)
+    
+    async def _auto_restore_role(self, guild: discord.Guild, role_id: int) -> bool:
+        """Restore a single role from cache."""
+        try:
+            return await self._restore_roles(guild, {role_id}) is not None
+        except Exception as e:
+            self.logger.error(f"Failed to auto-restore role {role_id}: {e}", exc_info=True)
+            return False
+    
+    async def _process_audit_log_event(self, guild: discord.Guild, target_id: int, action: discord.AuditLogAction) -> Optional[discord.AuditLogEntry]:
+        """Helper method to process audit log events with error handling."""
+        try:
+            settings = await get_guild(guild.id)
+            if not settings.get("antinuke_enabled", 1):
+                return None
+                
+            await asyncio.sleep(0.3)
+            async for entry in guild.audit_logs(limit=3, action=action):
+                if entry.target and entry.target.id == target_id:
+                    await self.process_audit_entry(entry)
+                    return entry
+        except Exception as e:
+            self.logger.error(f"Failed to process audit log event: {e}", exc_info=True)
+        return None
+
+    async def process_audit_entry(self, entry: discord.AuditLogEntry) -> None:
+        if not entry.guild or not entry.user:
+            return
+
+        if entry.id in self._processed_entries:
+            return
+        # Store entry with timestamp for cleanup
+        self._processed_entries[entry.id] = datetime.now(timezone.utc)
+
+        guild = entry.guild
+        attacker = entry.user
+        action = entry.action
+
+        if await self._is_whitelisted(guild.id, attacker.id):
+            return
+
+        action_type: str | None = None
+        target_desc = ""
+        extra_webhook_id: Optional[int] = None
+        extra_bot_id: Optional[int] = None
+
+        restore_channel_ids: Optional[Set[int]] = None
+        restore_role_ids: Optional[Set[int]] = None
+
+        instant_punish = False
+        instant_reason = ""
+
+        if action == discord.AuditLogAction.bot_add:
+            action_type = "bot_add"
+            if entry.target and hasattr(entry.target, "id"):
+                extra_bot_id = int(entry.target.id)
+            target_desc = f"Bot: {getattr(entry.target, 'name', 'Unknown')} (`{getattr(entry.target, 'id', '0')}`)"
+
+        elif action == discord.AuditLogAction.webhook_create:
+            action_type = "webhook_create"
+            if entry.target and hasattr(entry.target, "id"):
+                extra_webhook_id = int(entry.target.id)
+            target_desc = f"Webhook: {getattr(entry.target, 'name', 'Unknown')}"
+
+        elif action == discord.AuditLogAction.webhook_delete:
+            action_type = "webhook_delete"
+
+        elif action == discord.AuditLogAction.role_update:
+            before_perms = getattr(entry.changes.before, "permissions", None)
+            after_perms = getattr(entry.changes.after, "permissions", None)
+            if before_perms is not None and after_perms is not None:
+                from config import DANGEROUS_PERMISSIONS
+
+                added_perms = []
+                for perm_name, value in after_perms:
+                    if value and not getattr(before_perms, perm_name, False):
+                        added_perms.append(perm_name)
+
+                dangerous_added = [p for p in added_perms if p in DANGEROUS_PERMISSIONS]
+                if dangerous_added:
+                    instant_punish = True
+                    instant_reason = (
+                        "Permission escalation: granted dangerous permissions "
+                        f"{', '.join(dangerous_added)}"
+                    )
+
+            if not instant_punish:
+                action_type = "role_update"
+                target_desc = f"@{getattr(entry.target, 'name', 'Role')}"
+
+        elif action == discord.AuditLogAction.member_role_update:
+            added_roles = getattr(entry.changes.after, "roles", [])
+            for r in added_roles:
+                if self._is_dangerous_role(r):
+                    instant_punish = True
+                    instant_reason = (
+                        f"Permission escalation: assigned dangerous role @{r.name}"
+                    )
+                    break
+
+        elif action == discord.AuditLogAction.ban:
+            action_type = "ban"
+
+        elif action == discord.AuditLogAction.unban:
+            action_type = "unban"
+
+        elif action == discord.AuditLogAction.kick:
+            action_type = "kick"
+
+        elif action == discord.AuditLogAction.channel_delete:
+            action_type = "channel_delete"
+            if entry.target and hasattr(entry.target, "id"):
+                restore_channel_ids = {int(entry.target.id)}
+            instant_punish = True
+            instant_reason = "Unauthorized channel delete"
+
+        elif action == discord.AuditLogAction.channel_create:
+            action_type = "channel_create"
+
+        elif action == discord.AuditLogAction.role_delete:
+            action_type = "role_delete"
+            if entry.target and hasattr(entry.target, "id"):
+                restore_role_ids = {int(entry.target.id)}
+            instant_punish = True
+            instant_reason = "Unauthorized role delete"
+
+        elif action == discord.AuditLogAction.role_create:
+            action_type = "role_create"
+
+        elif action == discord.AuditLogAction.guild_update:
+            before_vanity = getattr(entry.changes.before, "vanity_url_code", None)
+            after_vanity = getattr(entry.changes.after, "vanity_url_code", None)
+            if before_vanity != after_vanity:
+                instant_punish = True
+                instant_reason = (
+                    f"Vanity URL modification: changed from '{before_vanity}' to '{after_vanity}'"
+                )
+            else:
+                action_type = "server_update"
+
+        elif action == discord.AuditLogAction.guild_owner_transfer:
+            action_type = "owner_transfer"
+
+        elif action == discord.AuditLogAction.emoji_delete:
+            action_type = "emoji_delete"
+
+        elif action == discord.AuditLogAction.sticker_delete:
+            action_type = "sticker_delete"
+
+        if instant_punish:
+            await self._handle_instant_punishment(guild, attacker.id, action_type or "permission_escalation", instant_reason)
+            # Targeted restore for deletes
+            if action in (discord.AuditLogAction.channel_delete, discord.AuditLogAction.role_delete):
+                await self._auto_restore_from_cache(
+                    guild,
+                    only_channel_ids=restore_channel_ids,
+                    only_role_ids=restore_role_ids,
+                )
+            return
+
+        if not action_type:
+            return
+
+        # Webhook auto-delete for unwhitelisted creators
+        if action == discord.AuditLogAction.webhook_create and extra_webhook_id is not None:
+            await self._delete_webhook_if_unauthorized(guild, attacker.id, extra_webhook_id)
+            await self._handle_instant_punishment(
+                guild,
+                attacker.id,
+                "webhook_create",
+                "Unauthorized webhook create",
+            )
+            return
+
+        # Threshold-based flow
+        try:
+            violated = await self._check_threshold(guild.id, attacker.id, action_type)
+        except Exception:
+            return
+
+        if violated and action_type in ("webhook_create", "webhook_delete"):
+            await self._delete_all_user_webhooks(guild, attacker.id)
+
+        if action == discord.AuditLogAction.bot_add and extra_bot_id is not None and not violated:
+            await self._kick_bot_if_unauthorized(guild, attacker.id, extra_bot_id)
+
+        if not violated:
+            return
+
+        await self._handle_violation(guild, attacker.id, action_type, target_desc)
+
+        # Targeted restore if violation is deletes (rare because we instant punish above)
+        if action in (discord.AuditLogAction.channel_delete, discord.AuditLogAction.role_delete):
+            await self._auto_restore_from_cache(
+                guild,
+                only_channel_ids=restore_channel_ids,
+                only_role_ids=restore_role_ids,
+            )
+
+        if action == discord.AuditLogAction.bot_add and extra_bot_id is not None:
+            await self._kick_bot_if_unauthorized(guild, attacker.id, extra_bot_id)
+
+    async def _kick_bot_if_unauthorized(self, guild: discord.Guild, adder_id: int, bot_id: int) -> None:
+        if await self._is_whitelisted(guild.id, adder_id):
+            return
+
+        bot_member = guild.get_member(bot_id)
+        if not bot_member:
+            try:
+                bot_member = await guild.fetch_member(bot_id)
+            except Exception:
+                return
+
+        if not bot_member or not getattr(bot_member, "bot", False):
+            return
+
+        try:
+            await bot_member.kick(reason="[Repent Antinuke] Unauthorized bot add")
+        except Exception:
+            pass
+
+    @commands.Cog.listener()
+    async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry):
+        await self.process_audit_entry(entry)
+
+    # ── Fast Path Listeners ──
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild: discord.Guild, user: discord.User | discord.Member):
+        await self._process_audit_log_event(guild, user.id, discord.AuditLogAction.ban)
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        await self._process_audit_log_event(member.guild, member.id, discord.AuditLogAction.kick)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        guild = channel.guild
+        settings = await get_guild(guild.id)
+        if not settings.get("antinuke_enabled", 1):
+            return
+        
+        await asyncio.sleep(0.3)
+        try:
+            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.channel_delete):
+                if entry.target and entry.target.id == channel.id:
+                    await self.process_audit_entry(entry)
+                    
+                    # Enhanced auto-restore with better logging
+                    if not await self._is_whitelisted(guild.id, entry.user.id):
+                        restored = await self._auto_restore_channel(guild, channel.id)
+                        if restored:
+                            self.logger.security(
+                                "AUTO_RESTORE_CHANNEL", 
+                                f"Auto-restored channel {channel.name} ({channel.id}) deleted by {entry.user.id}",
+                                guild_id=guild.id,
+                                user_id=entry.user.id
+                            )
+                    break
+        except Exception as e:
+            self.logger.error(f"Failed to process channel deletion: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
+        await self._process_audit_log_event(channel.guild, channel.id, discord.AuditLogAction.channel_create)
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role):
+        guild = role.guild
+        settings = await get_guild(guild.id)
+        if not settings.get("antinuke_enabled", 1):
+            return
+        
+        await asyncio.sleep(0.3)
+        try:
+            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.role_delete):
+                if entry.target and entry.target.id == role.id:
+                    await self.process_audit_entry(entry)
+                    
+                    # Enhanced auto-restore with better logging
+                    if not await self._is_whitelisted(guild.id, entry.user.id):
+                        restored = await self._auto_restore_role(guild, role.id)
+                        if restored:
+                            self.logger.security(
+                                "AUTO_RESTORE_ROLE", 
+                                f"Auto-restored role {role.name} ({role.id}) deleted by {entry.user.id}",
+                                guild_id=guild.id,
+                                user_id=entry.user.id
+                            )
+                    break
+        except Exception as e:
+            self.logger.error(f"Failed to process role deletion: {e}", exc_info=True)
+
+    @commands.Cog.listener()
+    async def on_guild_role_create(self, role: discord.Role):
+        await self._process_audit_log_event(role.guild, role.id, discord.AuditLogAction.role_create)
+
+    @commands.Cog.listener()
+    async def on_guild_emojis_update(
+        self,
+        guild: discord.Guild,
+        before: list[discord.Emoji],
+        after: list[discord.Emoji],
+    ):
+        settings = await get_guild(guild.id)
+        if not settings.get("antinuke_enabled", 1):
+            return
+        deleted = [e for e in before if e not in after]
+        if deleted:
+            await asyncio.sleep(0.3)
+            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.emoji_delete):
+                await self.process_audit_entry(entry)
+                break
+
+    @commands.Cog.listener()
+    async def on_guild_stickers_update(
+        self,
+        guild: discord.Guild,
+        before: list[discord.GuildSticker],
+        after: list[discord.GuildSticker],
+    ):
+        settings = await get_guild(guild.id)
+        if not settings.get("antinuke_enabled", 1):
+            return
+        deleted = [s for s in before if s not in after]
+        if deleted:
+            await asyncio.sleep(0.3)
+            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.sticker_delete):
+                await self.process_audit_entry(entry)
+                break
+
+    # ── Commands ──
+    @discord.app_commands.command(name="antinuke_restore", description="Restore deleted channels and roles from antinuke cache (Admin only)")
+    async def restore(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return
+        if not interaction.user.guild_permissions.administrator and interaction.user.id != OWNER_ID:
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        await interaction.response.defer(thinking=True)
+        try:
+            await self._auto_restore_from_cache(interaction.guild)
+        except Exception:
+            pass
+
+        await interaction.followup.send(
+            embed=success_embed("Restore Complete", "Auto-restore from cache has been attempted."),
+            ephemeral=False,
+        )
+
+    @discord.app_commands.command(name="punished", description="List punished users (Admin only)")
+    async def punished(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return
+        if not interaction.user.guild_permissions.administrator and interaction.user.id != OWNER_ID:
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        users = await get_punished_users(interaction.guild.id)
+        if not users:
+            return await interaction.response.send_message(embed=info_embed("Punished Users", "No punished users in this server."), ephemeral=False)
+
+        lines = []
+        for u in users[:20]:
+            member = interaction.guild.get_member(u["user_id"])
+            name = member.mention if member else f"<@{u['user_id']}>"
+            lines.append(f"{name} — `{u.get('punishment_type','')}` — {u.get('reason','')[:50]}")
+
+        await interaction.response.send_message(embed=info_embed("Punished Users", "\n".join(lines)), ephemeral=False)
+
+    @discord.app_commands.command(name="pardon", description="Remove a user from the punished list (Admin only)")
+    @discord.app_commands.describe(user="User to pardon")
+    async def pardon(self, interaction: discord.Interaction, user: discord.User):
+        if not interaction.guild:
+            return
+        if not interaction.user.guild_permissions.administrator and interaction.user.id != OWNER_ID:
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        await remove_punished_user(interaction.guild.id, user.id)
+        await interaction.response.send_message(embed=success_embed("Pardoned", f"{user.mention} has been removed from the punished list."), ephemeral=False)
+
+    @discord.app_commands.command(name="nuke-webhooks", description="Delete ALL webhooks across all channels in the guild (Admin only)")
+    async def nuke_webhooks(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return
+        if not interaction.user.guild_permissions.administrator and interaction.user.id != OWNER_ID:
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        await interaction.response.defer(thinking=True)
+        try:
+            webhooks = await interaction.guild.webhooks()
+            deleted = 0
+            for w in webhooks:
+                try:
+                    await w.delete(reason=f"[Repent Antinuke] Webhooks nuked by {interaction.user}")
+                    deleted += 1
+                except Exception:
+                    pass
+            await interaction.followup.send(embed=success_embed("Webhooks Nuked", f"Successfully deleted {deleted} webhook(s)."), ephemeral=False)
+        except Exception as e:
+            await interaction.followup.send(embed=error_embed(f"Failed to delete webhooks: {e}"), ephemeral=True)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Antinuke(bot))
+
