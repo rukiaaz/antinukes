@@ -86,3 +86,75 @@ Traceback (most recent call last):
   File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\ext\commands\bot.py", line 968, in _load_from_module_spec
     raise errors.ExtensionFailed(key, e) from e
 discord.ext.commands.errors.ExtensionFailed: Extension 'cogs.antinuke' raised an error: CommandAlreadyRegistered: Command 'antinuke_restore' already registered.
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 0 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 1 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None
+2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
+NoneType: None

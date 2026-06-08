@@ -50,16 +50,33 @@ class Repent(commands.Bot):
         await cache_layer.start()
         self.logger.info("Cache layer initialized")
 
-        # Load all cogs
+        # Load all cogs (guard against duplicate loads)
         cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
+        cogs_to_load = []
         for filename in os.listdir(cogs_dir):
             if filename.endswith(".py") and filename != "__init__.py":
                 cog_name = f"cogs.{filename[:-3]}"
-                try:
-                    await self.load_extension(cog_name)
-                    self.logger.info(f"Loaded cog: {cog_name}")
-                except Exception as e:
-                    self.logger.error(f"Failed to load cog {cog_name}", exc_info=True)
+                # TEMPORARILY DISABLED: Skip base antinuke if advanced exists
+                # if filename == "antinuke.py" and "antinuke_advanced.py" in os.listdir(cogs_dir):
+                #     continue
+                # TEMPORARILY DISABLED: Skip advanced antinuke for testing
+                if filename == "antinuke_advanced.py":
+                    continue
+                cogs_to_load.append(cog_name)
+        
+        # Sort to load advanced antinuke last (it handles base removal)
+        # TEMPORARILY DISABLED
+        # cogs_to_load.sort(key=lambda x: "antinuke_advanced" not in x)
+        
+        for cog_name in cogs_to_load:
+            try:
+                if cog_name in self.extensions:
+                    continue
+                await self.load_extension(cog_name)
+                self.logger.info(f"Loaded cog: {cog_name}")
+            except Exception as e:
+                self.logger.error(f"Failed to load cog {cog_name}", exc_info=True)
+
 
         # Sync slash commands
         try:

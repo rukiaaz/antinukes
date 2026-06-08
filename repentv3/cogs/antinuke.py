@@ -142,6 +142,32 @@ class Antinuke(commands.Cog):
 
     async def _apply_punishment(self, guild: discord.Guild, member: discord.Member, punishment: str, reason: str) -> None:
         try:
+            # Check if bot can punish this user based on role hierarchy
+            bot_member = guild.me
+            
+            # Cannot punish server owner
+            if member.id == guild.owner_id:
+                self.logger.warning(f"Cannot punish server owner {member.id}")
+                await self._notify_owner(guild, self._create_permission_denied_embed(guild, member, punishment, "User is server owner"))
+                return
+            
+            # Check role hierarchy - can only punish users with lower roles
+            if member.roles:
+                # Get user's highest role
+                user_highest_role = max(member.roles, key=lambda r: r.position)
+                
+                # If user's highest role is >= bot's highest role, cannot punish
+                if user_highest_role >= bot_member.top_role:
+                    self.logger.warning(f"Cannot punish {member.id} - role hierarchy: user role {user_highest_role.name} >= bot role {bot_member.top_role.name}")
+                    await self._notify_owner(guild, self._create_permission_denied_embed(guild, member, punishment, f"User has higher/equal role ({user_highest_role.name})"))
+                    
+                    # Try alternative punishment: strip permissions instead
+                    if punishment in ["ban", "kick", "timeout"]:
+                        self.logger.info(f"Attempting alternative punishment (strip) for {member.id}")
+                        await self._apply_punishment(guild, member, "strip", reason + " (original punishment: " + punishment + " failed due to role hierarchy)")
+                    return
+            
+            # If user has no roles or has lower roles, proceed with punishment
             if punishment == "ban":
                 await guild.ban(member, reason=reason, delete_message_days=0)
             elif punishment == "kick":
@@ -159,16 +185,44 @@ class Antinuke(commands.Cog):
             elif punishment == "timeout":
                 until = datetime.now(timezone.utc) + timedelta(days=28)
                 await member.timeout(until, reason=reason)
-        except Exception:
-            # Best-effort only
+                
+        except discord.Forbidden as e:
+            # Explicit permission error
+            self.logger.error(f"Forbidden to punish {member.id}: {e}")
             try:
                 owner = guild.get_member(guild.owner_id)
                 if owner:
                     await owner.send(
-                        f"⚠️ **{guild.name}**: I tried to punish **{member}** (`{member.id}`) for {punishment} but I lack permissions."
+                        f"⚠️ **{guild.name}**: I tried to punish **{member}** (`{member.id}`) for {punishment} but I lack permissions (Forbidden). Error: {e}"
                     )
             except Exception:
                 pass
+        except Exception as e:
+            # Other errors
+            self.logger.error(f"Failed to punish {member.id}: {e}", exc_info=True)
+            try:
+                owner = guild.get_member(guild.owner_id)
+                if owner:
+                    await owner.send(
+                        f"⚠️ **{guild.name}**: I tried to punish **{member}** (`{member.id}`) for {punishment} but encountered an error: {e}"
+                    )
+            except Exception:
+                pass
+
+    def _create_permission_denied_embed(self, guild: discord.Guild, member: discord.Member, punishment: str, reason: str) -> discord.Embed:
+        """Create an embed for permission denied situations."""
+        embed = discord.Embed(
+            title="🚨 Permission Denied - Cannot Punish",
+            description=f"**Target:** {member.mention} (`{member.id}`)\n"
+                       f"**Attempted Punishment:** {punishment}\n"
+                       f"**Reason:** {reason}\n"
+                       f"**Bot Role:** {guild.me.top_role.mention} (Position: {guild.me.top_role.position})\n"
+                       f"**User Top Role:** {max(member.roles, key=lambda r: r.position).mention if member.roles else '@everyone'}",
+            color=0xFF4444
+        )
+        embed.set_footer(text=f"Guild: {guild.name} | Bot: {guild.me}")
+        embed.timestamp = datetime.now(timezone.utc)
+        return embed
 
     async def _notify_owner(self, guild: discord.Guild, embed: discord.Embed) -> None:
         try:
@@ -665,114 +719,14 @@ class Antinuke(commands.Cog):
         except Exception:
             pass
 
+    # Primary detection source: audit log only.
     @commands.Cog.listener()
     async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry):
         await self.process_audit_entry(entry)
 
-    # ── Fast Path Listeners ──
-    @commands.Cog.listener()
-    async def on_member_ban(self, guild: discord.Guild, user: discord.User | discord.Member):
-        await self._process_audit_log_event(guild, user.id, discord.AuditLogAction.ban)
+    # Fast-path listeners removed to avoid duplicate audit processing.
+    # (They were causing unstable behavior and duplicate incidents.)
 
-    @commands.Cog.listener()
-    async def on_member_remove(self, member: discord.Member):
-        await self._process_audit_log_event(member.guild, member.id, discord.AuditLogAction.kick)
-
-    @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
-        guild = channel.guild
-        settings = await get_guild(guild.id)
-        if not settings.get("antinuke_enabled", 1):
-            return
-        
-        await asyncio.sleep(0.3)
-        try:
-            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.channel_delete):
-                if entry.target and entry.target.id == channel.id:
-                    await self.process_audit_entry(entry)
-                    
-                    # Enhanced auto-restore with better logging
-                    if not await self._is_whitelisted(guild.id, entry.user.id):
-                        restored = await self._auto_restore_channel(guild, channel.id)
-                        if restored:
-                            self.logger.security(
-                                "AUTO_RESTORE_CHANNEL", 
-                                f"Auto-restored channel {channel.name} ({channel.id}) deleted by {entry.user.id}",
-                                guild_id=guild.id,
-                                user_id=entry.user.id
-                            )
-                    break
-        except Exception as e:
-            self.logger.error(f"Failed to process channel deletion: {e}", exc_info=True)
-
-    @commands.Cog.listener()
-    async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
-        await self._process_audit_log_event(channel.guild, channel.id, discord.AuditLogAction.channel_create)
-
-    @commands.Cog.listener()
-    async def on_guild_role_delete(self, role: discord.Role):
-        guild = role.guild
-        settings = await get_guild(guild.id)
-        if not settings.get("antinuke_enabled", 1):
-            return
-        
-        await asyncio.sleep(0.3)
-        try:
-            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.role_delete):
-                if entry.target and entry.target.id == role.id:
-                    await self.process_audit_entry(entry)
-                    
-                    # Enhanced auto-restore with better logging
-                    if not await self._is_whitelisted(guild.id, entry.user.id):
-                        restored = await self._auto_restore_role(guild, role.id)
-                        if restored:
-                            self.logger.security(
-                                "AUTO_RESTORE_ROLE", 
-                                f"Auto-restored role {role.name} ({role.id}) deleted by {entry.user.id}",
-                                guild_id=guild.id,
-                                user_id=entry.user.id
-                            )
-                    break
-        except Exception as e:
-            self.logger.error(f"Failed to process role deletion: {e}", exc_info=True)
-
-    @commands.Cog.listener()
-    async def on_guild_role_create(self, role: discord.Role):
-        await self._process_audit_log_event(role.guild, role.id, discord.AuditLogAction.role_create)
-
-    @commands.Cog.listener()
-    async def on_guild_emojis_update(
-        self,
-        guild: discord.Guild,
-        before: list[discord.Emoji],
-        after: list[discord.Emoji],
-    ):
-        settings = await get_guild(guild.id)
-        if not settings.get("antinuke_enabled", 1):
-            return
-        deleted = [e for e in before if e not in after]
-        if deleted:
-            await asyncio.sleep(0.3)
-            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.emoji_delete):
-                await self.process_audit_entry(entry)
-                break
-
-    @commands.Cog.listener()
-    async def on_guild_stickers_update(
-        self,
-        guild: discord.Guild,
-        before: list[discord.GuildSticker],
-        after: list[discord.GuildSticker],
-    ):
-        settings = await get_guild(guild.id)
-        if not settings.get("antinuke_enabled", 1):
-            return
-        deleted = [s for s in before if s not in after]
-        if deleted:
-            await asyncio.sleep(0.3)
-            async for entry in guild.audit_logs(limit=3, action=discord.AuditLogAction.sticker_delete):
-                await self.process_audit_entry(entry)
-                break
 
     # ── Commands ──
     @discord.app_commands.command(name="antinuke_restore", description="Restore deleted channels and roles from antinuke cache (Admin only)")

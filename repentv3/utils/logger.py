@@ -112,6 +112,15 @@ class RepentLogger:
             details,
             guild_id=guild_id
         )
+    
+    def anomaly_detected(self, guild_id: int, user_id: int, score: float, anomaly_types: list):
+        """Log anomaly detection event."""
+        self.security(
+            "ANOMALY_DETECTED",
+            f"Score: {score:.2f}, Types: {', '.join(anomaly_types)}",
+            guild_id=guild_id,
+            user_id=user_id
+        )
 
 
 # Global logger instance
