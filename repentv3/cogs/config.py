@@ -22,6 +22,9 @@ from database import (
     get_antinuke_threshold,
     set_antinuke_threshold,
     log_action,
+    add_bot_whitelist,
+    remove_bot_whitelist,
+    get_bot_whitelist,
 )
 from utils.embeds import success_embed, error_embed, info_embed
 
@@ -38,6 +41,12 @@ class InteractiveSetupView(discord.ui.View):
         self.punishment = "ban"
         self.whitelist_done = False
         self.protections_enabled = False
+        self.welcome_channel = None
+        self.boost_channel = None
+        self.bot_whitelist_done = False
+        self.verification_channel = None
+        self.verification_role = None
+        self.verification_enabled = False
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user.id:
@@ -76,8 +85,63 @@ class InteractiveSetupView(discord.ui.View):
         await interaction.response.send_message(f"✅ Punishment set to `{self.punishment}`", ephemeral=True)
         await self.update_embed(interaction)
 
-    # 3. Whitelist Owner & Invoker Button
-    @discord.ui.button(label="Auto-Whitelist Owner & Invoker", style=discord.ButtonStyle.primary, row=2, emoji="🛡️")
+    # 3. Welcome Channel Selector
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select Welcome Channel (Optional)...",
+        row=2
+    )
+    async def select_welcome_channel(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        channel = select.values[0]
+        self.welcome_channel = channel
+        await update_guild(interaction.guild.id, welcome_channel=channel.id)
+        await interaction.response.send_message(f"✅ Welcome channel set to {channel.mention}", ephemeral=True)
+        await self.update_embed(interaction)
+
+    # 4. Boost Channel Selector
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select Boost Channel (Optional)...",
+        row=2
+    )
+    async def select_boost_channel(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        channel = select.values[0]
+        self.boost_channel = channel
+        await update_guild(interaction.guild.id, boost_channel=channel.id)
+        await interaction.response.send_message(f"✅ Boost channel set to {channel.mention}", ephemeral=True)
+        await self.update_embed(interaction)
+
+    # 5. Verification Channel Selector
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select Verification Channel (Optional)...",
+        row=3
+    )
+    async def select_verification_channel(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        channel = select.values[0]
+        self.verification_channel = channel
+        await update_guild(interaction.guild.id, verification_channel=channel.id)
+        await interaction.response.send_message(f"✅ Verification channel set to {channel.mention}", ephemeral=True)
+        await self.update_embed(interaction)
+
+    # 6. Verification Role Selector
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Select Verification Role (Optional)...",
+        row=3
+    )
+    async def select_verification_role(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
+        role = select.values[0]
+        self.verification_role = role
+        await update_guild(interaction.guild.id, verification_role=role.id)
+        await interaction.response.send_message(f"✅ Verification role set to {role.mention}", ephemeral=True)
+        await self.update_embed(interaction)
+
+    # 7. Whitelist Owner & Invoker Button
+    @discord.ui.button(label="Auto-Whitelist Owner & Invoker", style=discord.ButtonStyle.primary, row=4, emoji="🛡️")
     async def whitelist_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         await add_whitelist(guild.id, guild.owner_id, 2, interaction.user.id)
@@ -88,8 +152,26 @@ class InteractiveSetupView(discord.ui.View):
         await interaction.response.send_message("✅ Whitelisted Server Owner & Invoker with Full trust.", ephemeral=True)
         await self.update_embed(interaction)
 
-    # 4. Enable All Protections Button
-    @discord.ui.button(label="Enable All Protections", style=discord.ButtonStyle.success, row=2, emoji="⚡")
+    # 8. Auto-Whitelist Bots Button
+    @discord.ui.button(label="Auto-Whitelist Common Bots", style=discord.ButtonStyle.secondary, row=4, emoji="🤖")
+    async def bot_whitelist_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
+        whitelisted_count = 0
+        # Whitelist common bot types
+        for member in guild.members:
+            if member.bot:
+                # Whitelist bots that are likely to be utility bots
+                # (you can add more sophisticated detection logic here)
+                await add_bot_whitelist(guild.id, member.id, interaction.user.id, "Auto-whitelisted during setup")
+                whitelisted_count += 1
+        
+        self.bot_whitelist_done = True
+        button.disabled = True
+        await interaction.response.send_message(f"✅ Whitelisted {whitelisted_count} bots in the server.", ephemeral=True)
+        await self.update_embed(interaction)
+
+    # 9. Enable All Protections Button
+    @discord.ui.button(label="Enable All Protections", style=discord.ButtonStyle.success, row=5, emoji="⚡")
     async def protections_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         await update_guild(guild.id, antinuke_enabled=1, automod_enabled=1, raid_mode=0)
@@ -98,8 +180,8 @@ class InteractiveSetupView(discord.ui.View):
         await interaction.response.send_message("✅ Activated Antinuke, AutoMod, and Anti-Raid protections.", ephemeral=True)
         await self.update_embed(interaction)
 
-    # 5. Auto-Create Channel Button
-    @discord.ui.button(label="Create Logs Channel", style=discord.ButtonStyle.secondary, row=3, emoji="📁")
+    # 10. Auto-Create Channel Button
+    @discord.ui.button(label="Create Logs Channel", style=discord.ButtonStyle.secondary, row=5, emoji="📁")
     async def create_channel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
         ch = discord.utils.get(guild.text_channels, name="repent-logs")
@@ -122,8 +204,39 @@ class InteractiveSetupView(discord.ui.View):
         await interaction.response.send_message(f"✅ Created and set log channel to {ch.mention}", ephemeral=True)
         await self.update_embed(interaction)
 
-    # 6. Done Button
-    @discord.ui.button(label="Done / Finish", style=discord.ButtonStyle.danger, row=3, emoji="🏁")
+    # 11. Send Verification Button
+    @discord.ui.button(label="Send Verification Message", style=discord.ButtonStyle.success, row=6, emoji="🔐")
+    async def send_verification_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.verification_channel or not self.verification_role:
+            return await interaction.response.send_message("❌ Please set verification channel and role first.", ephemeral=True)
+        
+        guild = interaction.guild
+        await update_guild(guild.id, verification_enabled=1)
+        self.verification_enabled = True
+        button.disabled = True
+        
+        # Send verification message
+        from cogs.verification import VerificationButton
+        embed = discord.Embed(
+            title="Verification Required",
+            description="Click the button below to verify yourself and gain access to the server.",
+            color=0x4488FF
+        )
+        embed.set_footer(text=f"Powered by {self.bot.user.name}")
+        
+        view = discord.ui.View()
+        view.add_item(VerificationButton(self.bot, self.verification_role.id))
+        
+        try:
+            await self.verification_channel.send(embed=embed, view=view)
+            await interaction.response.send_message(f"✅ Verification message sent to {self.verification_channel.mention}", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to send verification message: {e}", ephemeral=True)
+        
+        await self.update_embed(interaction)
+
+    # 12. Done Button
+    @discord.ui.button(label="Done / Finish", style=discord.ButtonStyle.danger, row=6, emoji="🏁")
     async def done_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         bot_member = interaction.guild.me
         warnings = []
@@ -144,8 +257,14 @@ class InteractiveSetupView(discord.ui.View):
             title="🏁 Setup Complete",
             description=f"Congratulations, **{self.bot.user.name}** setup is finished!\n\n"
                         f"**Log Channel:** {self.log_channel.mention if self.log_channel else '*Not Configured*'}\n"
+                        f"**Welcome Channel:** {self.welcome_channel.mention if self.welcome_channel else '*Not Configured*'}\n"
+                        f"**Boost Channel:** {self.boost_channel.mention if self.boost_channel else '*Not Configured*'}\n"
+                        f"**Verification Channel:** {self.verification_channel.mention if self.verification_channel else '*Not Configured*'}\n"
+                        f"**Verification Role:** {self.verification_role.mention if self.verification_role else '*Not Configured*'}\n"
                         f"**Punishment:** `{self.punishment}`\n"
                         f"**Owner/Invoker Whitelist:** {'✅ Done' if self.whitelist_done else '❌ Skipped'}\n"
+                        f"**Bot Whitelist:** {'✅ Done' if self.bot_whitelist_done else '❌ Skipped'}\n"
+                        f"**Verification Sent:** {'✅ Yes' if self.verification_enabled else '❌ No'}\n"
                         f"**All Protections Active:** {'✅ Yes' if self.protections_enabled else '❌ No'}\n\n"
                         f"**Permission Status:**\n{warning_text}",
             color=0x44FF88
@@ -163,8 +282,14 @@ class InteractiveSetupView(discord.ui.View):
         )
         embed.add_field(name="1️⃣ Log Channel", value=self.log_channel.mention if self.log_channel else "Not selected yet", inline=True)
         embed.add_field(name="2️⃣ Punishment", value=f"`{self.punishment}`", inline=True)
-        embed.add_field(name="3️⃣ Whitelist Owner & Invoker", value="✅ Whitelisted" if self.whitelist_done else "Pending", inline=True)
-        embed.add_field(name="4️⃣ Enable Protections", value="✅ Active (Antinuke, AutoMod, Anti-Raid)" if self.protections_enabled else "Pending", inline=True)
+        embed.add_field(name="3️⃣ Welcome Channel", value=self.welcome_channel.mention if self.welcome_channel else "Optional", inline=True)
+        embed.add_field(name="4️⃣ Boost Channel", value=self.boost_channel.mention if self.boost_channel else "Optional", inline=True)
+        embed.add_field(name="5️⃣ Verification Channel", value=self.verification_channel.mention if self.verification_channel else "Optional", inline=True)
+        embed.add_field(name="6️⃣ Verification Role", value=self.verification_role.mention if self.verification_role else "Optional", inline=True)
+        embed.add_field(name="7️⃣ Whitelist Owner & Invoker", value="✅ Whitelisted" if self.whitelist_done else "Pending", inline=True)
+        embed.add_field(name="8️⃣ Bot Whitelist", value="✅ Done" if self.bot_whitelist_done else "Optional", inline=True)
+        embed.add_field(name="9️⃣ Enable Protections", value="✅ Active" if self.protections_enabled else "Pending", inline=True)
+        embed.add_field(name="🔟 Verification Sent", value="✅ Yes" if self.verification_enabled else "Optional", inline=True)
 
         try:
             await interaction.message.edit(embed=embed, view=self)
@@ -191,6 +316,7 @@ class Config(commands.Cog):
         mod_ch = guild.get_channel(settings.get("mod_channel", 0))
         welcome_ch = guild.get_channel(settings.get("welcome_channel", 0))
         farewell_ch = guild.get_channel(settings.get("farewell_channel", 0))
+        boost_ch = guild.get_channel(settings.get("boost_channel", 0))
         autorole = guild.get_role(settings.get("autorole", 0))
 
         embed.add_field(name="Antinuke", value="✅ Enabled" if settings.get("antinuke_enabled") else "❌ Disabled", inline=True)
@@ -200,6 +326,7 @@ class Config(commands.Cog):
         embed.add_field(name="Mod Channel", value=mod_ch.mention if mod_ch else "Not set", inline=True)
         embed.add_field(name="Welcome", value=welcome_ch.mention if welcome_ch else "Not set", inline=True)
         embed.add_field(name="Farewell", value=farewell_ch.mention if farewell_ch else "Not set", inline=True)
+        embed.add_field(name="Boost", value=boost_ch.mention if boost_ch else "Not set", inline=True)
         embed.add_field(name="Autorole", value=autorole.mention if autorole else "Not set", inline=True)
         embed.add_field(name="Whitelisted", value=f"{wl_count} user(s)", inline=True)
 
@@ -259,8 +386,14 @@ class Config(commands.Cog):
         )
         embed.add_field(name="1️⃣ Log Channel", value="Not selected yet", inline=True)
         embed.add_field(name="2️⃣ Punishment", value="`ban` (Default)", inline=True)
-        embed.add_field(name="3️⃣ Whitelist Owner & Invoker", value="Pending", inline=True)
-        embed.add_field(name="4️⃣ Enable Protections", value="Pending", inline=True)
+        embed.add_field(name="3️⃣ Welcome Channel", value="Optional", inline=True)
+        embed.add_field(name="4️⃣ Boost Channel", value="Optional", inline=True)
+        embed.add_field(name="5️⃣ Verification Channel", value="Optional", inline=True)
+        embed.add_field(name="6️⃣ Verification Role", value="Optional", inline=True)
+        embed.add_field(name="7️⃣ Whitelist Owner & Invoker", value="Pending", inline=True)
+        embed.add_field(name="8️⃣ Bot Whitelist", value="Optional", inline=True)
+        embed.add_field(name="9️⃣ Enable Protections", value="Pending", inline=True)
+        embed.add_field(name="🔟 Verification Sent", value="Optional", inline=True)
 
         view = InteractiveSetupView(self.bot, interaction.user)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -511,6 +644,275 @@ class Config(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=False)
 
         return await interaction.response.send_message(embed=error_embed("Use: `add`, `remove`, or `list`."), ephemeral=True)
+
+    # ── Bot Whitelist Commands ──
+    @app_commands.command(name="botwhitelist", description="Manage whitelisted bots - they won't be punished by antinuke (Admin only)")
+    @app_commands.describe(
+        action="add, remove, or list",
+        bot="Bot to add/remove",
+        reason="Reason for whitelisting",
+    )
+    async def botwhitelist(
+        self,
+        interaction: discord.Interaction,
+        action: str,
+        bot: discord.Member = None,
+        reason: str = "Trusted bot",
+    ):
+        if not await self._is_admin(interaction):
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        guild = interaction.guild
+        action_l = action.lower().strip()
+
+        if action_l == "add":
+            if not bot:
+                return await interaction.response.send_message(embed=error_embed("Provide a bot."), ephemeral=True)
+            if not bot.bot:
+                return await interaction.response.send_message(embed=error_embed("This is not a bot."), ephemeral=True)
+            
+            await add_bot_whitelist(guild.id, bot.id, interaction.user.id, reason)
+            await log_action(
+                guild.id,
+                "bot_whitelist_add",
+                bot.id,
+                {"reason": reason, "added_by": interaction.user.id},
+            )
+            return await interaction.response.send_message(
+                embed=success_embed("Bot Whitelisted", f"{bot.mention} is now whitelisted and won't be punished by antinuke.\n**Reason:** {reason}"),
+                ephemeral=False,
+            )
+
+        if action_l == "remove":
+            if not bot:
+                return await interaction.response.send_message(embed=error_embed("Provide a bot."), ephemeral=True)
+            if not bot.bot:
+                return await interaction.response.send_message(embed=error_embed("This is not a bot."), ephemeral=True)
+            
+            await remove_bot_whitelist(guild.id, bot.id)
+            await log_action(guild.id, "bot_whitelist_remove", bot.id, {"removed_by": interaction.user.id})
+            return await interaction.response.send_message(
+                embed=success_embed("Bot Removed", f"{bot.mention} removed from bot whitelist."),
+                ephemeral=False,
+            )
+
+        if action_l == "list":
+            entries = await get_bot_whitelist(guild.id)
+            if not entries:
+                return await interaction.response.send_message(embed=info_embed("Bot Whitelist", "No bots whitelisted."), ephemeral=False)
+
+            lines = []
+            for e in entries[:20]:
+                member = guild.get_member(e["bot_id"])
+                name = member.mention if member else f"<@{e['bot_id']}>"
+                reason_text = e.get("reason", "No reason")
+                lines.append(f"{name} — `{reason_text}`")
+
+            embed = info_embed("Whitelisted Bots", "\n".join(lines))
+            embed.add_field(name="Note", value="Whitelisted bots won't be punished by antinuke systems.", inline=False)
+            return await interaction.response.send_message(embed=embed, ephemeral=False)
+
+        return await interaction.response.send_message(embed=error_embed("Use: `add`, `remove`, or `list`."), ephemeral=True)
+
+    # ── Safe Admin Commands ──
+    @app_commands.command(name="safeadmin", description="Manage safe admins - immune to antinuke (Admin only)")
+    @app_commands.describe(action="add, remove, or list", user="User to add/remove")
+    async def safeadmin(self, interaction: discord.Interaction, action: str, user: discord.Member = None):
+        if not await self._is_admin(interaction):
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        guild = interaction.guild
+        action_l = action.lower().strip()
+        settings = await get_guild(guild.id)
+
+        if action_l == "add":
+            if not user:
+                return await interaction.response.send_message(embed=error_embed("Provide a user."), ephemeral=True)
+            
+            # Get current safe admins
+            try:
+                import json
+                safe_admins_json = settings.get("antinuke_safe_admins", "[]")
+                safe_admins = json.loads(safe_admins_json)
+            except json.JSONDecodeError:
+                safe_admins = []
+            
+            if user.id in safe_admins:
+                return await interaction.response.send_message(embed=error_embed("User is already a safe admin."), ephemeral=True)
+            
+            safe_admins.append(user.id)
+            await update_guild(guild.id, antinuke_safe_admins=json.dumps(safe_admins))
+            await log_action(guild.id, "safe_admin_added", user.id, {"added_by": interaction.user.id})
+            
+            return await interaction.response.send_message(
+                embed=success_embed("Safe Admin Added", f"{user.mention} is now immune to antinuke punishments."),
+                ephemeral=False,
+            )
+
+        elif action_l == "remove":
+            if not user:
+                return await interaction.response.send_message(embed=error_embed("Provide a user."), ephemeral=True)
+            
+            # Get current safe admins
+            try:
+                import json
+                safe_admins_json = settings.get("antinuke_safe_admins", "[]")
+                safe_admins = json.loads(safe_admins_json)
+            except json.JSONDecodeError:
+                safe_admins = []
+            
+            if user.id not in safe_admins:
+                return await interaction.response.send_message(embed=error_embed("User is not a safe admin."), ephemeral=True)
+            
+            safe_admins.remove(user.id)
+            await update_guild(guild.id, antinuke_safe_admins=json.dumps(safe_admins))
+            await log_action(guild.id, "safe_admin_removed", user.id, {"removed_by": interaction.user.id})
+            
+            return await interaction.response.send_message(
+                embed=success_embed("Safe Admin Removed", f"{user.mention} is no longer immune to antinuke."),
+                ephemeral=False,
+            )
+
+        elif action_l == "list":
+            try:
+                import json
+                safe_admins_json = settings.get("antinuke_safe_admins", "[]")
+                safe_admins = json.loads(safe_admins_json)
+            except json.JSONDecodeError:
+                safe_admins = []
+            
+            if not safe_admins:
+                return await interaction.response.send_message(
+                    embed=info_embed("Safe Admins", "No safe admins configured."),
+                    ephemeral=False,
+                )
+            
+            lines = []
+            for admin_id in safe_admins:
+                member = guild.get_member(admin_id)
+                name = member.mention if member else f"<@{admin_id}>"
+                lines.append(name)
+            
+            embed = info_embed("Safe Admins", "\n".join(lines))
+            embed.add_field(name="Note", value="Safe admins are immune to antinuke punishments.", inline=False)
+            return await interaction.response.send_message(embed=embed, ephemeral=False)
+
+        else:
+            return await interaction.response.send_message(embed=error_embed("Use: `add`, `remove`, or `list`."), ephemeral=True)
+
+    # ── Enhanced Antinuke Commands ──
+    @app_commands.command(name="antinukeconfig", description="Configure advanced antinuke settings (Admin only)")
+    @app_commands.describe(
+        action="sensitivity, lockdown, instantrestore, logging, or status",
+        value="Value to set"
+    )
+    async def antinukeconfig(self, interaction: discord.Interaction, action: str, value: str = None):
+        if not await self._is_admin(interaction):
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        guild = interaction.guild
+        action_l = action.lower().strip()
+        settings = await get_guild(guild.id)
+
+        if action_l == "sensitivity":
+            if not value:
+                current = settings.get("antinuke_sensitivity_level", 5)
+                return await interaction.response.send_message(
+                    embed=info_embed("Antinuke Sensitivity", f"Current: {current}/10 (1=least sensitive, 10=most sensitive)"),
+                    ephemeral=False
+                )
+            try:
+                level = max(1, min(10, int(value)))
+                await update_guild(guild.id, antinuke_sensitivity_level=level)
+                return await interaction.response.send_message(
+                    embed=success_embed("Sensitivity Set", f"Antinuke sensitivity set to {level}/10."),
+                    ephemeral=False
+                )
+            except ValueError:
+                return await interaction.response.send_message(embed=error_embed("Sensitivity must be a number 1-10."), ephemeral=True)
+
+        elif action_l == "lockdown":
+            if not value:
+                current = settings.get("antinuke_lockdown_mode", 0)
+                return await interaction.response.send_message(
+                    embed=info_embed("Lockdown Mode", f"Current: {'🔒 LOCKDOWN' if current else '✅ Normal'}"),
+                    ephemeral=False
+                )
+            if value.lower() in ("true", "on", "enable", "1"):
+                await update_guild(guild.id, antinuke_lockdown_mode=1)
+                return await interaction.response.send_message(
+                    embed=success_embed("Lockdown Enabled", "Server is in antinuke lockdown mode."),
+                    ephemeral=False
+                )
+            else:
+                await update_guild(guild.id, antinuke_lockdown_mode=0)
+                return await interaction.response.send_message(
+                    embed=success_embed("Lockdown Disabled", "Server is in normal mode."),
+                    ephemeral=False
+                )
+
+        elif action_l == "instantrestore":
+            if not value:
+                current = settings.get("antinuke_instant_restore", 1)
+                return await interaction.response.send_message(
+                    embed=info_embed("Instant Restore", f"Current: {'✅ Enabled' if current else '❌ Disabled'}"),
+                    ephemeral=False
+                )
+            if value.lower() in ("true", "on", "enable", "1"):
+                await update_guild(guild.id, antinuke_instant_restore=1)
+                return await interaction.response.send_message(
+                    embed=success_embed("Instant Restore Enabled", "Deleted channels/roles will be instantly restored."),
+                    ephemeral=False
+                )
+            else:
+                await update_guild(guild.id, antinuke_instant_restore=0)
+                return await interaction.response.send_message(
+                    embed=success_embed("Instant Restore Disabled", "Manual restore required."),
+                    ephemeral=False
+                )
+
+        elif action_l == "logging":
+            if not value:
+                current = settings.get("antinuke_log_all_punishments", 1)
+                return await interaction.response.send_message(
+                    embed=info_embed("Punishment Logging", f"Current: {'✅ Enabled' if current else '❌ Disabled'}"),
+                    ephemeral=False
+                )
+            if value.lower() in ("true", "on", "enable", "1"):
+                await update_guild(guild.id, antinuke_log_all_punishments=1)
+                return await interaction.response.send_message(
+                    embed=success_embed("Logging Enabled", "All punishments will be logged."),
+                    ephemeral=False
+                )
+            else:
+                await update_guild(guild.id, antinuke_log_all_punishments=0)
+                return await interaction.response.send_message(
+                    embed=success_embed("Logging Disabled", "Only critical punishments will be logged."),
+                    ephemeral=False
+                )
+
+        elif action_l == "status":
+            embed = discord.Embed(title="🛡️ Advanced Antinuke Status", color=0x4488FF)
+            embed.add_field(name="Sensitivity", value=f"{settings.get('antinuke_sensitivity_level', 5)}/10", inline=True)
+            embed.add_field(name="Lockdown Mode", value="🔒 LOCKDOWN" if settings.get("antinuke_lockdown_mode", 0) else "✅ Normal", inline=True)
+            embed.add_field(name="Instant Restore", value="✅ Enabled" if settings.get("antinuke_instant_restore", 1) else "❌ Disabled", inline=True)
+            embed.add_field(name="Detailed Logging", value="✅ Enabled" if settings.get("antinuke_log_all_punishments", 1) else "❌ Disabled", inline=True)
+            
+            try:
+                import json
+                safe_admins_json = settings.get("antinuke_safe_admins", "[]")
+                safe_admins = json.loads(safe_admins_json)
+                embed.add_field(name="Safe Admins", value=str(len(safe_admins)), inline=True)
+            except json.JSONDecodeError:
+                embed.add_field(name="Safe Admins", value="0", inline=True)
+
+            return await interaction.response.send_message(embed=embed, ephemeral=False)
+
+        else:
+            return await interaction.response.send_message(
+                embed=error_embed("Use: `sensitivity`, `lockdown`, `instantrestore`, `logging`, or `status`."),
+                ephemeral=True
+            )
 
     async def _resolve_channel(self, guild: discord.Guild, value: str):
         if not value:

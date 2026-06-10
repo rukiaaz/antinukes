@@ -30,6 +30,7 @@ from database import (
     get_punished_users,
     log_action,
     get_antinuke_threshold,
+    is_bot_whitelisted,
 )
 from utils.embeds import antinuke_embed, error_embed, info_embed, success_embed
 from utils.cache import snapshot_guild
@@ -130,6 +131,22 @@ class Antinuke(commands.Cog):
         guild = self.bot.get_guild(guild_id)
         if guild and guild.owner_id == user_id:
             return True
+
+        # Check safe admin list
+        settings = await get_guild(guild_id)
+        safe_admins_json = settings.get("antinuke_safe_admins", "[]")
+        try:
+            safe_admins = json.loads(safe_admins_json)
+            if user_id in safe_admins:
+                return True
+        except json.JSONDecodeError:
+            pass
+
+        # Check if user is a bot and if it's whitelisted
+        member = guild.get_member(user_id) if guild else None
+        if member and member.bot:
+            if await is_bot_whitelisted(guild_id, user_id):
+                return True
 
         entry = await get_whitelist_entry(guild_id, user_id)
         return bool(entry and entry.get("trust_level", 0) >= 2)
@@ -378,6 +395,97 @@ class Antinuke(commands.Cog):
             if getattr(role.permissions, perm, False):
                 return True
         return False
+
+    def _check_permission_escalation(self, before: discord.Role, after: discord.Role) -> bool:
+        """Check if a role update represents permission escalation."""
+        from config import DANGEROUS_PERMISSIONS
+        
+        before_dangerous = [perm for perm in DANGEROUS_PERMISSIONS if getattr(before.permissions, perm, False)]
+        after_dangerous = [perm for perm in DANGEROUS_PERMISSIONS if getattr(after.permissions, perm, False)]
+        
+        # Check if dangerous permissions were added
+        new_dangerous = set(after_dangerous) - set(before_dangerous)
+        if new_dangerous:
+            return True, list(new_dangerous)
+        
+        return False, []
+
+    async def _handle_permission_escalation(self, guild: discord.Guild, user_id: int, role: discord.Role, added_permissions: List[str]):
+        """Handle permission escalation detection."""
+        if await self._is_whitelisted(guild.id, user_id):
+            return
+
+        settings = await get_guild(guild.id)
+        if not settings.get("antinuke_enabled", 1):
+            return
+
+        member = guild.get_member(user_id)
+        if not member:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception:
+                return
+
+        punishment = settings.get("punishment", DEFAULT_PUNISHMENT)
+        reason = f"[Repent Antinuke] Permission Escalation: Added dangerous permissions to {role.name}: {', '.join(added_permissions)}"
+
+        await self._apply_punishment(guild, member, punishment, reason)
+        await add_punished_user(guild.id, user_id, reason, self.bot.user.id if self.bot.user else 0, punishment)
+
+        # Log the incident
+        await log_action(
+            guild.id,
+            "permission_escalation",
+            user_id,
+            {"role": role.name, "permissions": added_permissions, "punishment": punishment},
+        )
+
+        embed = discord.Embed(
+            title="🚨 Permission Escalation Detected",
+            description=f"**User:** {member.mention} ({member.id})\n"
+                       f"**Role:** {role.mention}\n"
+                       f"**Added Permissions:** {', '.join(added_permissions)}\n"
+                       f"**Punishment:** {punishment}",
+            color=0xFF4444
+        )
+
+        await self._notify_owner(guild, embed)
+        await self._log_to_channel(guild, embed)
+
+    @commands.Cog.listener()
+    async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
+        """Detect permission escalation in role updates."""
+        guild = after.guild
+        settings = await get_guild(guild.id)
+        
+        # Check if permission escalation detection is enabled
+        sensitivity = settings.get("antinuke_sensitivity_level", 5)
+        if sensitivity < 5:  # Only check if sensitivity is medium or higher
+            return
+        
+        # Get the audit log entry to find who made the change
+        async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.role_update):
+            if entry.target.id == after.id:
+                is_escalation, added_perms = self._check_permission_escalation(before, after)
+                if is_escalation:
+                    await self._handle_permission_escalation(guild, entry.user.id, after, added_perms)
+                break
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        """Enhanced member join with instant restore if configured."""
+        # This complements the existing antinuke join check
+        from database import is_hardbanned
+        if await is_hardbanned(member.guild.id, member.id):
+            try:
+                await member.guild.ban(
+                    member,
+                    reason="[Repent] Hardban — auto reban on rejoin",
+                    delete_message_days=0,
+                )
+                self.logger.security("HARDBAN_REBAN", f"Re-banned user {member.id}", guild_id=member.guild.id, user_id=member.id)
+            except Exception as e:
+                self.logger.error(f"Failed to reban hardbanned user {member.id}", exc_info=True)
 
     async def _auto_restore_channel(self, guild: discord.Guild, channel_id: int) -> bool:
         """Restore a single channel from cache with full settings including overwrites."""

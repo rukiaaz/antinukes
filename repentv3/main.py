@@ -62,6 +62,9 @@ class Repent(commands.Bot):
                 # TEMPORARILY DISABLED: Skip advanced antinuke for testing
                 if filename == "antinuke_advanced.py":
                     continue
+                # Skip old verification system (replaced by new verification cog)
+                if filename == "antiraid.py":
+                    continue
                 cogs_to_load.append(cog_name)
         
         # Sort to load advanced antinuke last (it handles base removal)

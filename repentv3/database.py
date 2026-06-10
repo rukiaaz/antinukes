@@ -17,7 +17,12 @@ GUILDS_ALLOWED_COLUMNS = {
     "autorole", "punishment", "antinuke_enabled", "automod_enabled",
     "welcome_msg", "farewell_msg", "level_up_channel", "level_up_dm",
     "raid_mode", "raid_join_threshold", "raid_join_window", "raid_account_age",
-    "verification_channel"
+    "verification_channel", "boost_channel", "boost_msg", "verification_enabled",
+    "verification_role", "verification_title", "verification_description",
+    "verification_color", "verification_button_text", "raid_quarantine_channel",
+    "raid_sensitivity_level", "raid_auto_mode", "raid_webhook_url",
+    "antinuke_sensitivity_level", "antinuke_lockdown_mode", "antinuke_safe_admins",
+    "antinuke_webhook_safe_mode", "antinuke_instant_restore", "antinuke_log_all_punishments"
 }
 
 AUTOMOD_ALLOWED_COLUMNS = {
@@ -141,7 +146,25 @@ async def init_db():
             raid_join_threshold INTEGER DEFAULT 10,
             raid_join_window INTEGER DEFAULT 10,
             raid_account_age INTEGER DEFAULT 7,
-            verification_channel INTEGER DEFAULT 0
+            verification_channel INTEGER DEFAULT 0,
+            boost_channel INTEGER DEFAULT 0,
+            boost_msg TEXT DEFAULT '',
+            verification_enabled INTEGER DEFAULT 0,
+            verification_role INTEGER DEFAULT 0,
+            verification_title TEXT DEFAULT 'Verification Required',
+            verification_description TEXT DEFAULT 'Click the button below to verify yourself and gain access to the server.',
+            verification_color INTEGER DEFAULT 4488FF,
+            verification_button_text TEXT DEFAULT 'Verify',
+            raid_quarantine_channel INTEGER DEFAULT 0,
+            raid_sensitivity_level INTEGER DEFAULT 5,
+            raid_auto_mode INTEGER DEFAULT 0,
+            raid_webhook_url TEXT DEFAULT '',
+            antinuke_sensitivity_level INTEGER DEFAULT 5,
+            antinuke_lockdown_mode INTEGER DEFAULT 0,
+            antinuke_safe_admins TEXT DEFAULT '[]',
+            antinuke_webhook_safe_mode INTEGER DEFAULT 0,
+            antinuke_instant_restore INTEGER DEFAULT 1,
+            antinuke_log_all_punishments INTEGER DEFAULT 1
         );
 
         -- Raid log for history
@@ -259,6 +282,35 @@ async def init_db():
             timestamp TEXT DEFAULT ''
         );
 
+        -- User Notes (private moderation notes)
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            note TEXT DEFAULT '',
+            added_by INTEGER DEFAULT 0,
+            timestamp TEXT DEFAULT ''
+        );
+
+        -- Strikes (escalating punishment system)
+        CREATE TABLE IF NOT EXISTS strikes (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            strikes INTEGER DEFAULT 0,
+            last_strike_at TEXT DEFAULT '',
+            PRIMARY KEY (guild_id, user_id)
+        );
+
+        -- Strike Log (history of strikes)
+        CREATE TABLE IF NOT EXISTS strike_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            reason TEXT DEFAULT '',
+            added_by INTEGER DEFAULT 0,
+            timestamp TEXT DEFAULT ''
+        );
+
         -- Hardbans (auto-reban on rejoin)
         CREATE TABLE IF NOT EXISTS hardbans (
             guild_id INTEGER NOT NULL,
@@ -344,6 +396,16 @@ async def init_db():
             PRIMARY KEY (guild_id, channel_id, module)
         );
 
+        -- Bot whitelist (whitelisted bots that won't be punished)
+        CREATE TABLE IF NOT EXISTS bot_whitelist (
+            guild_id INTEGER NOT NULL,
+            bot_id INTEGER NOT NULL,
+            added_by INTEGER DEFAULT 0,
+            added_at TEXT DEFAULT '',
+            reason TEXT DEFAULT '',
+            PRIMARY KEY (guild_id, bot_id)
+        );
+
         -- Backups metadata
         CREATE TABLE IF NOT EXISTS backups (
             backup_id TEXT PRIMARY KEY,
@@ -396,6 +458,24 @@ async def init_db():
         ("raid_join_window", "INTEGER DEFAULT 10"),
         ("raid_account_age", "INTEGER DEFAULT 7"),
         ("verification_channel", "INTEGER DEFAULT 0"),
+        ("boost_channel", "INTEGER DEFAULT 0"),
+        ("boost_msg", "TEXT DEFAULT ''"),
+        ("verification_enabled", "INTEGER DEFAULT 0"),
+        ("verification_role", "INTEGER DEFAULT 0"),
+        ("verification_title", "TEXT DEFAULT 'Verification Required'"),
+        ("verification_description", "TEXT DEFAULT 'Click the button below to verify yourself and gain access to the server.'"),
+        ("verification_color", "INTEGER DEFAULT 4488FF"),
+        ("verification_button_text", "TEXT DEFAULT 'Verify'"),
+        ("raid_quarantine_channel", "INTEGER DEFAULT 0"),
+        ("raid_sensitivity_level", "INTEGER DEFAULT 5"),
+        ("raid_auto_mode", "INTEGER DEFAULT 0"),
+        ("raid_webhook_url", "TEXT DEFAULT ''"),
+        ("antinuke_sensitivity_level", "INTEGER DEFAULT 5"),
+        ("antinuke_lockdown_mode", "INTEGER DEFAULT 0"),
+        ("antinuke_safe_admins", "TEXT DEFAULT '[]'"),
+        ("antinuke_webhook_safe_mode", "INTEGER DEFAULT 0"),
+        ("antinuke_instant_restore", "INTEGER DEFAULT 1"),
+        ("antinuke_log_all_punishments", "INTEGER DEFAULT 1"),
     ]
     for col_name, col_def in columns_to_add:
         try:
@@ -505,6 +585,193 @@ async def remove_whitelist(guild_id: int, user_id: int):
         "DELETE FROM whitelist WHERE guild_id = ? AND user_id = ?",
         (guild_id, user_id),
     )
+    await db.commit()
+    await _release_db(db)
+
+
+async def get_whitelist(guild_id: int) -> List[Dict[str, Any]]:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM whitelist WHERE guild_id = ?",
+        (guild_id,),
+    )
+    rows = await cursor.fetchall()
+    await _release_db(db)
+    return [dict(row) for row in rows]
+
+
+async def get_whitelist_entry(guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM whitelist WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    )
+    row = await cursor.fetchone()
+    await _release_db(db)
+    return dict(row) if row else None
+
+
+# ── Bot Whitelist ──
+async def add_bot_whitelist(guild_id: int, bot_id: int, added_by: int, reason: str = ""):
+    db = await _get_db()
+    await db.execute(
+        """INSERT OR REPLACE INTO bot_whitelist
+           (guild_id, bot_id, added_by, added_at, reason)
+           VALUES (?, ?, ?, ?, ?)""",
+        (guild_id, bot_id, added_by, _now(), reason),
+    )
+    await db.commit()
+    await _release_db(db)
+
+
+async def remove_bot_whitelist(guild_id: int, bot_id: int):
+    db = await _get_db()
+    await db.execute(
+        "DELETE FROM bot_whitelist WHERE guild_id = ? AND bot_id = ?",
+        (guild_id, bot_id),
+    )
+    await db.commit()
+    await _release_db(db)
+
+
+async def get_bot_whitelist(guild_id: int) -> List[Dict[str, Any]]:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM bot_whitelist WHERE guild_id = ?",
+        (guild_id,),
+    )
+    rows = await cursor.fetchall()
+    await _release_db(db)
+    return [dict(row) for row in rows]
+
+
+async def is_bot_whitelisted(guild_id: int, bot_id: int) -> bool:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM bot_whitelist WHERE guild_id = ? AND bot_id = ?",
+        (guild_id, bot_id),
+    )
+    row = await cursor.fetchone()
+    await _release_db(db)
+    return row is not None
+
+
+# ── User Notes ──
+async def add_user_note(guild_id: int, user_id: int, note: str, added_by: int):
+    db = await _get_db()
+    await db.execute(
+        "INSERT INTO notes (guild_id, user_id, note, added_by, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (guild_id, user_id, note, added_by, _now()),
+    )
+    await db.commit()
+    await _release_db(db)
+
+
+async def get_user_notes(guild_id: int, user_id: int) -> List[Dict[str, Any]]:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM notes WHERE guild_id = ? AND user_id = ? ORDER BY timestamp DESC",
+        (guild_id, user_id),
+    )
+    rows = await cursor.fetchall()
+    await _release_db(db)
+    return [dict(row) for row in rows]
+
+
+async def delete_user_note(guild_id: int, note_id: int):
+    db = await _get_db()
+    await db.execute(
+        "DELETE FROM notes WHERE guild_id = ? AND id = ?",
+        (guild_id, note_id),
+    )
+    await db.commit()
+    await _release_db(db)
+
+
+# ── User Strikes ──
+async def add_user_strike(guild_id: int, user_id: int, reason: str, added_by: int):
+    db = await _get_db()
+    # First, check if user has strikes, increment if exists
+    cursor = await db.execute(
+        "SELECT strikes FROM strikes WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    )
+    row = await cursor.fetchone()
+    if row:
+        new_count = row["strikes"] + 1
+        await db.execute(
+            "UPDATE strikes SET strikes = ?, last_strike_at = ? WHERE guild_id = ? AND user_id = ?",
+            (new_count, _now(), guild_id, user_id),
+        )
+    else:
+        await db.execute(
+            "INSERT INTO strikes (guild_id, user_id, strikes, last_strike_at) VALUES (?, ?, 1, ?)",
+            (guild_id, user_id, _now()),
+        )
+    await db.commit()
+    await _release_db(db)
+    
+    # Log the strike
+    db2 = await _get_db()
+    await db2.execute(
+        "INSERT INTO strike_log (guild_id, user_id, reason, added_by, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (guild_id, user_id, reason, added_by, _now()),
+    )
+    await db2.commit()
+    await _release_db(db2)
+
+
+async def get_user_strikes(guild_id: int, user_id: int) -> Dict[str, Any]:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM strikes WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    )
+    row = await cursor.fetchone()
+    await _release_db(db)
+    return dict(row) if row else {"strikes": 0, "last_strike_at": ""}
+
+
+async def get_user_strike_log(guild_id: int, user_id: int) -> List[Dict[str, Any]]:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM strike_log WHERE guild_id = ? AND user_id = ? ORDER BY timestamp DESC",
+        (guild_id, user_id),
+    )
+    rows = await cursor.fetchall()
+    await _release_db(db)
+    return [dict(row) for row in rows]
+
+
+async def clear_user_strikes(guild_id: int, user_id: int):
+    db = await _get_db()
+    await db.execute(
+        "DELETE FROM strikes WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    )
+    await db.commit()
+    await _release_db(db)
+
+
+async def remove_user_strike(guild_id: int, user_id: int):
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT strikes FROM strikes WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id),
+    )
+    row = await cursor.fetchone()
+    if row and row["strikes"] > 0:
+        new_count = row["strikes"] - 1
+        if new_count <= 0:
+            await db.execute(
+                "DELETE FROM strikes WHERE guild_id = ? AND user_id = ?",
+                (guild_id, user_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE strikes SET strikes = ? WHERE guild_id = ? AND user_id = ?",
+                (new_count, guild_id, user_id),
+            )
     await db.commit()
     await _release_db(db)
 

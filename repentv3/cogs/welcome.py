@@ -85,6 +85,36 @@ class Welcome(commands.Cog):
                 except Exception:
                     pass
 
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        """Handle boost events."""
+        guild = after.guild
+        settings = await get_guild(guild.id)
+
+        # Check if user just boosted
+        before_premium = before.premium_since
+        after_premium = after.premium_since
+
+        # User just started boosting
+        if before_premium is None and after_premium is not None:
+            boost_ch_id = settings.get("boost_channel", 0)
+            boost_msg = settings.get("boost_msg", "")
+            if boost_ch_id and boost_msg:
+                ch = guild.get_channel(boost_ch_id)
+                if ch:
+                    msg = self._format_message(boost_msg, after, guild)
+                    embed = discord.Embed(
+                        description=msg,
+                        color=0xFF69B4,  # Pink for boost
+                    )
+                    embed.set_author(name=f"🚀 Server Boosted!", icon_url=guild.icon.url if guild.icon else None)
+                    embed.set_thumbnail(url=after.display_avatar.url)
+                    embed.set_footer(text=f"Thanks for the boost, {after.name}!")
+                    try:
+                        await ch.send(embed=embed)
+                    except Exception:
+                        pass
+
     # ── Welcome Commands ──
     @discord.app_commands.command(name="welcome", description="Configure welcome settings (Admin only)")
     @discord.app_commands.describe(
@@ -179,6 +209,51 @@ class Welcome(commands.Cog):
             await update_guild(guild.id, farewell_msg=text)
             await interaction.response.send_message(
                 embed=success_embed("Farewell Message Set", f"Message updated.\nPreview: {text.replace('{user}', interaction.user.mention).replace('{server}', guild.name).replace('{count}', str(guild.member_count))}"),
+                ephemeral=False,
+            )
+
+        else:
+            await interaction.response.send_message(
+                embed=error_embed("Invalid action. Use: `set` or `message`."), ephemeral=True
+            )
+
+    # ── Boost Commands ──
+    @discord.app_commands.command(name="boost", description="Configure boost settings (Admin only)")
+    @discord.app_commands.describe(
+        action="set or message",
+        channel="Channel for boost messages",
+        text="Boost message template",
+    )
+    async def boost(self, interaction: discord.Interaction, action: str, channel: str = None, text: str = None):
+        from config import OWNER_ID
+        if not interaction.user.guild_permissions.administrator and interaction.user.id != OWNER_ID:
+            return await interaction.response.send_message(embed=error_embed("Administrator required."), ephemeral=True)
+
+        guild = interaction.guild
+
+        if action.lower() == "set":
+            if not channel:
+                return await interaction.response.send_message(embed=error_embed("Provide a channel."), ephemeral=True)
+            ch = await self._resolve_channel(guild, channel)
+            if not ch:
+                return await interaction.response.send_message(embed=error_embed("Channel not found."), ephemeral=True)
+            await update_guild(guild.id, boost_channel=ch.id)
+            await interaction.response.send_message(
+                embed=success_embed("Boost Channel Set", f"Boost messages will be sent to {ch.mention}"),
+                ephemeral=False,
+            )
+
+        elif action.lower() == "message":
+            if not text:
+                settings = await get_guild(guild.id)
+                current = settings.get("boost_msg", "")
+                return await interaction.response.send_message(
+                    embed=info_embed("Boost Message", f"Current:\n{current or 'Not set'}\n\nVariables: `{{user}}`, `{{server}}`, `{{count}}`"),
+                    ephemeral=False,
+                )
+            await update_guild(guild.id, boost_msg=text)
+            await interaction.response.send_message(
+                embed=success_embed("Boost Message Set", f"Message updated.\nPreview: {text.replace('{user}', interaction.user.mention).replace('{server}', guild.name).replace('{count}', str(guild.member_count))}"),
                 ephemeral=False,
             )
 

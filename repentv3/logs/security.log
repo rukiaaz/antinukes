@@ -813,3 +813,23 @@ NoneType: None
 2026-06-08 13:59:17 - SECURITY - EVENT: ANOMALY_DETECTED | DETAILS: Score: 0.80, Types: sequential | GUILD: 1512695207206981766 | USER: 1510854558929125416
 2026-06-08 13:59:17 - SECURITY - EVENT: ANOMALY_DETECTED | DETAILS: Score: 0.80, Types: sequential | GUILD: 1512695207206981766 | USER: 1510854558929125416
 2026-06-08 14:38:56 - SECURITY - Channel 1513431411032457226 not found in cache
+2026-06-09 22:31:15 - SECURITY - Failed to notify owner of new guild
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 137, in on_guild_join
+    await owner.send(embed=embed)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\abc.py", line 1618, in send
+    data = await state.http.send_message(channel.id, params=params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\http.py", line 752, in request
+    raise Forbidden(response, data)
+discord.errors.Forbidden: 403 Forbidden (error code: 50278): Cannot send messages to this user due to having no mutual guilds
+2026-06-09 22:34:09 - SECURITY - Failed to notify owner of new guild
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 137, in on_guild_join
+    await owner.send(embed=embed)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\abc.py", line 1618, in send
+    data = await state.http.send_message(channel.id, params=params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\http.py", line 752, in request
+    raise Forbidden(response, data)
+discord.errors.Forbidden: 403 Forbidden (error code: 50278): Cannot send messages to this user due to having no mutual guilds

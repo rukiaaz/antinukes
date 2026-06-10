@@ -158,3 +158,23 @@ NoneType: None
 NoneType: None
 2026-06-08 12:57:12 - Repent - ERROR - Layer 2 failed: '>' not supported between instances of 'ThreatLevel' and 'ThreatLevel'
 NoneType: None
+2026-06-09 22:31:15 - Repent - ERROR - Failed to notify owner of new guild
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 137, in on_guild_join
+    await owner.send(embed=embed)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\abc.py", line 1618, in send
+    data = await state.http.send_message(channel.id, params=params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\http.py", line 752, in request
+    raise Forbidden(response, data)
+discord.errors.Forbidden: 403 Forbidden (error code: 50278): Cannot send messages to this user due to having no mutual guilds
+2026-06-09 22:34:09 - Repent - ERROR - Failed to notify owner of new guild
+Traceback (most recent call last):
+  File "D:\antinukes\repentv3\main.py", line 137, in on_guild_join
+    await owner.send(embed=embed)
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\abc.py", line 1618, in send
+    data = await state.http.send_message(channel.id, params=params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\NIGS\AppData\Roaming\Python\Python314\site-packages\discord\http.py", line 752, in request
+    raise Forbidden(response, data)
+discord.errors.Forbidden: 403 Forbidden (error code: 50278): Cannot send messages to this user due to having no mutual guilds
