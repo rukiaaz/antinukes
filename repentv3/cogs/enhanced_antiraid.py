@@ -11,6 +11,7 @@ from typing import Dict, List, Set, Optional
 from collections import deque
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from database import get_guild, update_guild, log_raid_start, log_raid_end, log_action

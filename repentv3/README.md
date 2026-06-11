@@ -369,6 +369,41 @@ repent/
 
 ---
 
+## Legal & Compliance
+
+This bot includes comprehensive legal documentation for Discord verification and compliance:
+
+### Legal Documents
+- **[Privacy Policy](PRIVACY_POLICY.md)** - Detailed information about data collection, usage, and user rights
+- **[Terms of Service](TERMS_OF_SERVICE.md)** - Acceptable use policy and legal terms
+- **[Legal Compliance Guide](LEGAL_COMPLIANCE_GUIDE.md)** - Instructions for Discord bot verification
+- **[Quick Legal Reference](QUICK_LEGAL_REFERENCE.md)** - User-friendly summary of legal terms
+
+### Discord Bot Verification
+Before submitting for Discord verification, you must:
+1. Update placeholder information in the legal documents with your actual contact details
+2. Host the documents publicly (website, GitHub, etc.)
+3. Add the URLs to your Discord Developer Portal application
+4. Ensure data collection is accurately disclosed in the Discord Developer Portal
+5. Review the [Legal Compliance Guide](LEGAL_COMPLIANCE_GUIDE.md) for detailed instructions
+
+### Data Collection Disclosure
+This bot collects the following data types (must be disclosed in Discord Developer Portal):
+- **Guilds** - Server names, IDs, member counts, and configuration
+- **Guild Members** - User IDs, usernames, and basic profile information
+- **Messages** - Message content for moderation and security purposes
+- **Channels** - Channel names, IDs, types, and permissions
+- **Roles** - Role names, IDs, colors, and permissions
+- **Audit Logs** - Audit log entries for security monitoring
+- **Voice States** - Voice channel participation for security monitoring
+
+### User Data Rights
+- Users can request data deletion by removing the bot from their server
+- Data is automatically deleted according to the retention policy specified in the Privacy Policy
+- Contact information is provided for privacy inquiries and data requests
+
+---
+
 ## License
 
 MIT License — Free for personal and commercial use. Attribution appreciated.

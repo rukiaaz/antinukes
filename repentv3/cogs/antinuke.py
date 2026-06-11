@@ -31,6 +31,8 @@ from database import (
     log_action,
     get_antinuke_threshold,
     is_bot_whitelisted,
+    user_has_whitelisted_role,
+    is_user_whitelisted_optimized,
 )
 from utils.embeds import antinuke_embed, error_embed, info_embed, success_embed
 from utils.cache import snapshot_guild
@@ -87,6 +89,18 @@ class Antinuke(commands.Cog):
         self._processed_entries: Dict[int, datetime] = {}
         self._cleanup_task = None
         self.logger = get_logger()
+        
+        # Whitelist result cache: {(guild_id, user_id): (result, timestamp)}
+        self._whitelist_cache: Dict[Tuple[int, int], Tuple[bool, datetime]] = {}
+        self._cache_ttl = 300  # 5 minutes
+        
+        # Discord object cache: {cache_key: (object, timestamp)}
+        self._discord_cache: Dict[str, Tuple[Any, datetime]] = {}
+        self._discord_cache_ttl = 60  # 1 minute for Discord objects
+        
+        # Safe admins JSON cache: {guild_id: (parsed_list, settings_timestamp)}
+        self._safe_admins_cache: Dict[int, Tuple[List[int], str, datetime]] = {}
+        self._safe_admins_cache_ttl = 180  # 3 minutes for safe admins
 
     def _get_guild_lock(self, guild_id: int) -> asyncio.Lock:
         self._locks.setdefault(guild_id, asyncio.Lock())
@@ -105,6 +119,53 @@ class Antinuke(commands.Cog):
             except asyncio.CancelledError:
                 pass
 
+    def _get_cached_whitelist_status(self, guild_id: int, user_id: int) -> Optional[bool]:
+        """Get cached whitelist status if available and not expired."""
+        cache_key = (guild_id, user_id)
+        if cache_key in self._whitelist_cache:
+            result, timestamp = self._whitelist_cache[cache_key]
+            if datetime.now(timezone.utc) - timestamp < timedelta(seconds=self._cache_ttl):
+                return result
+            else:
+                # Expired, remove from cache
+                del self._whitelist_cache[cache_key]
+        return None
+
+    def _set_cached_whitelist_status(self, guild_id: int, user_id: int, result: bool) -> None:
+        """Cache whitelist status with current timestamp."""
+        cache_key = (guild_id, user_id)
+        self._whitelist_cache[cache_key] = (result, datetime.now(timezone.utc))
+
+    def _get_cached_discord_object(self, cache_key: str) -> Optional[Any]:
+        """Get cached Discord object if available and not expired."""
+        if cache_key in self._discord_cache:
+            obj, timestamp = self._discord_cache[cache_key]
+            if datetime.now(timezone.utc) - timestamp < timedelta(seconds=self._discord_cache_ttl):
+                return obj
+            else:
+                # Expired, remove from cache
+                del self._discord_cache[cache_key]
+        return None
+
+    def _set_cached_discord_object(self, cache_key: str, obj: Any) -> None:
+        """Cache Discord object with current timestamp."""
+        self._discord_cache[cache_key] = (obj, datetime.now(timezone.utc))
+
+    def _get_cached_safe_admins(self, guild_id: int, current_settings_json: str) -> Optional[List[int]]:
+        """Get cached safe admins list if settings haven't changed."""
+        if guild_id in self._safe_admins_cache:
+            cached_list, cached_json, timestamp = self._safe_admins_cache[guild_id]
+            if cached_json == current_settings_json and datetime.now(timezone.utc) - timestamp < timedelta(seconds=self._safe_admins_cache_ttl):
+                return cached_list
+            else:
+                # Settings changed or expired, remove from cache
+                del self._safe_admins_cache[guild_id]
+        return None
+
+    def _set_cached_safe_admins(self, guild_id: int, safe_admins_list: List[int], settings_json: str) -> None:
+        """Cache safe admins list with current settings and timestamp."""
+        self._safe_admins_cache[guild_id] = (safe_admins_list, settings_json, datetime.now(timezone.utc))
+
     async def _cleanup_loop(self):
         """Periodically clean up old processed entries to prevent memory leaks."""
         await self.bot.wait_until_ready()
@@ -117,39 +178,108 @@ class Antinuke(commands.Cog):
                     del self._processed_entries[eid]
                 if old_entries:
                     self.logger.debug(f"Cleaned up {len(old_entries)} old processed entries")
+                
+                # Clean up whitelist cache
+                cache_cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._cache_ttl)
+                old_cache_keys = [key for key, (_, timestamp) in self._whitelist_cache.items() if timestamp < cache_cutoff]
+                for key in old_cache_keys:
+                    del self._whitelist_cache[key]
+                if old_cache_keys:
+                    self.logger.debug(f"Cleaned up {len(old_cache_keys)} old whitelist cache entries")
+                
+                # Clean up Discord object cache
+                discord_cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._discord_cache_ttl)
+                old_discord_keys = [key for key, (_, timestamp) in self._discord_cache.items() if timestamp < discord_cutoff]
+                for key in old_discord_keys:
+                    del self._discord_cache[key]
+                if old_discord_keys:
+                    self.logger.debug(f"Cleaned up {len(old_discord_keys)} old Discord cache entries")
+                
+                # Clean up safe admins cache
+                safe_admins_cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._safe_admins_cache_ttl)
+                old_safe_admins_keys = [key for key, (_, _, timestamp) in self._safe_admins_cache.items() if timestamp < safe_admins_cutoff]
+                for key in old_safe_admins_keys:
+                    del self._safe_admins_cache[key]
+                if old_safe_admins_keys:
+                    self.logger.debug(f"Cleaned up {len(old_safe_admins_keys)} old safe admins cache entries")
+                    
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error("Error in antinuke cleanup loop", exc_info=True)
 
     async def _is_whitelisted(self, guild_id: int, user_id: int) -> bool:
+        # Check cache first for fast lookup
+        cached_result = self._get_cached_whitelist_status(guild_id, user_id)
+        if cached_result is not None:
+            return cached_result
+
         if user_id == OWNER_ID:
+            self._set_cached_whitelist_status(guild_id, user_id, True)
             return True
         if self.bot.user and user_id == self.bot.user.id:
+            self._set_cached_whitelist_status(guild_id, user_id, True)
             return True
 
-        guild = self.bot.get_guild(guild_id)
+        # Use Discord object cache for guild lookups
+        guild_cache_key = f"guild:{guild_id}"
+        guild = self._get_cached_discord_object(guild_cache_key)
+        if not guild:
+            guild = self.bot.get_guild(guild_id)
+            if guild:
+                self._set_cached_discord_object(guild_cache_key, guild)
+        
         if guild and guild.owner_id == user_id:
+            self._set_cached_whitelist_status(guild_id, user_id, True)
             return True
 
-        # Check safe admin list
+        # Check safe admin list with cached JSON parsing
         settings = await get_guild(guild_id)
         safe_admins_json = settings.get("antinuke_safe_admins", "[]")
-        try:
-            safe_admins = json.loads(safe_admins_json)
-            if user_id in safe_admins:
-                return True
-        except json.JSONDecodeError:
-            pass
+        
+        # Try to use cached safe admins list
+        safe_admins = self._get_cached_safe_admins(guild_id, safe_admins_json)
+        if safe_admins is None:
+            # Parse and cache if not available
+            try:
+                safe_admins = json.loads(safe_admins_json)
+                self._set_cached_safe_admins(guild_id, safe_admins, safe_admins_json)
+            except json.JSONDecodeError:
+                safe_admins = []
+        
+        if user_id in safe_admins:
+            self._set_cached_whitelist_status(guild_id, user_id, True)
+            return True
 
-        # Check if user is a bot and if it's whitelisted
-        member = guild.get_member(user_id) if guild else None
-        if member and member.bot:
-            if await is_bot_whitelisted(guild_id, user_id):
+        # Check if user is a bot and if it's whitelisted using optimized function
+        member_cache_key = f"member:{guild_id}:{user_id}"
+        member = self._get_cached_discord_object(member_cache_key)
+        if not member and guild:
+            member = guild.get_member(user_id)
+            if member:
+                self._set_cached_discord_object(member_cache_key, member)
+        
+        is_bot = member and member.bot
+        if is_bot:
+            if await is_user_whitelisted_optimized(guild_id, user_id, is_bot=True):
+                self._set_cached_whitelist_status(guild_id, user_id, True)
                 return True
 
-        entry = await get_whitelist_entry(guild_id, user_id)
-        return bool(entry and entry.get("trust_level", 0) >= 2)
+        # Check role-based whitelist (staff protection) using optimized function
+        if member and member.roles:
+            user_role_ids = {role.id for role in member.roles}
+            if await user_has_whitelisted_role(guild_id, user_id, user_role_ids):
+                self._set_cached_whitelist_status(guild_id, user_id, True)
+                return True
+
+        # Use optimized database function for user whitelist check
+        if await is_user_whitelisted_optimized(guild_id, user_id, is_bot=False):
+            self._set_cached_whitelist_status(guild_id, user_id, True)
+            return True
+
+        # Cache the negative result
+        self._set_cached_whitelist_status(guild_id, user_id, False)
+        return False
 
     async def _check_threshold(self, guild_id: int, user_id: int, action_type: str) -> bool:
         max_count, window = await get_antinuke_threshold(guild_id, action_type)
@@ -159,6 +289,11 @@ class Antinuke(commands.Cog):
 
     async def _apply_punishment(self, guild: discord.Guild, member: discord.Member, punishment: str, reason: str) -> None:
         try:
+            # Final security check: Verify whitelist status one more time
+            if await self._is_whitelisted(guild.id, member.id):
+                self.logger.warning(f"Aborting punishment for {member.id} - user is whitelisted")
+                return
+            
             # Check if bot can punish this user based on role hierarchy
             bot_member = guild.me
             
@@ -396,6 +531,65 @@ class Antinuke(commands.Cog):
                 return True
         return False
 
+    def _is_administrator_role(self, role: discord.Role) -> bool:
+        """Check if role has administrator permission."""
+        return role.permissions.administrator
+
+    def _can_manage_guild(self, role: discord.Role) -> bool:
+        """Check if role can manage guild settings."""
+        return role.permissions.manage_guild
+
+    def _detect_suspicious_pattern(self, attacker: discord.Member, action: discord.AuditLogAction, entry: discord.AuditLogEntry) -> bool:
+        """Detect suspicious activity patterns that may indicate bypass attempts."""
+        # Check for rapid successive actions
+        recent_count = self.rate_tracker.count_events(
+            entry.guild.id, attacker.id, "suspicious_activity", 30
+        )
+        
+        # If user has multiple suspicious actions in 30 seconds, flag as suspicious
+        if recent_count >= 3:
+            return True
+        
+        # Check for高危 actions in short time
+        high_risk_actions = [
+            discord.AuditLogAction.role_update,
+            discord.AuditLogAction.channel_delete,
+            discord.AuditLogAction.role_delete,
+            discord.AuditLogAction.guild_update,
+        ]
+        
+        if action in high_risk_actions:
+            # Track this as a potentially suspicious action
+            self.rate_tracker.add_event(entry.guild.id, attacker.id, "suspicious_activity")
+        
+        return False
+
+    async def _handle_suspicious_activity(self, guild: discord.Guild, attacker: discord.Member, action: discord.AuditLogAction):
+        """Handle detected suspicious activity with stricter punishment."""
+        # Log the suspicious activity
+        await log_action(
+            guild.id,
+            "suspicious_activity",
+            attacker.id,
+            {"action": str(action), "punishment": "ban"}
+        )
+        
+        # Apply immediate ban for suspicious patterns
+        try:
+            await guild.ban(
+                attacker,
+                reason="[Repent] Suspicious activity pattern detected - auto-ban for security",
+                delete_message_days=0,
+            )
+            self.logger.security(
+                "SUSPICIOUS_ACTIVITY_BAN",
+                f"Banned user {attacker.id} for suspicious activity pattern",
+                guild_id=guild.id,
+                user_id=attacker.id
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to ban suspicious user {attacker.id}: {e}", exc_info=True)
+
     def _check_permission_escalation(self, before: discord.Role, after: discord.Role) -> bool:
         """Check if a role update represents permission escalation."""
         from config import DANGEROUS_PERMISSIONS
@@ -407,6 +601,14 @@ class Antinuke(commands.Cog):
         new_dangerous = set(after_dangerous) - set(before_dangerous)
         if new_dangerous:
             return True, list(new_dangerous)
+        
+        # Check if administrator was granted (most dangerous)
+        if not before.permissions.administrator and after.permissions.administrator:
+            return True, ["administrator"]
+        
+        # Check if manage_guild was granted
+        if not before.permissions.manage_guild and after.permissions.manage_guild:
+            return True, ["manage_guild"]
         
         return False, []
 
@@ -646,6 +848,17 @@ class Antinuke(commands.Cog):
 
         if await self._is_whitelisted(guild.id, attacker.id):
             return
+
+        # Additional security: Check for suspicious patterns
+        if self._detect_suspicious_pattern(attacker, action, entry):
+            self.logger.security(
+                "SUSPICIOUS_PATTERN",
+                f"Suspicious activity pattern detected from user {attacker.id}",
+                guild_id=guild.id,
+                user_id=attacker.id
+            )
+            # Apply stricter punishment for suspicious patterns
+            await self._handle_suspicious_activity(guild, attacker, action)
 
         action_type: str | None = None
         target_desc = ""

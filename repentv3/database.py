@@ -8,7 +8,7 @@ import json
 import asyncio
 import aiosqlite
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 from config import DB_PATH
 
 # ── Security: Allowed column names for SQL injection prevention ──
@@ -113,18 +113,69 @@ async def _release_db(db: aiosqlite.Connection):
 
 
 # ── Initialization ──
-async def init_db():
-    """Create all tables if they don't exist."""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    db = await aiosqlite.connect(DB_PATH)
-    db.row_factory = aiosqlite.Row
+async def cleanup_database_locks():
+    """Attempt to clean up stale database locks by removing lock files."""
+    import os
     
-    # Enable WAL mode for better concurrency
-    await db.execute("PRAGMA journal_mode = WAL")
-    # Enable foreign key constraints
-    await db.execute("PRAGMA foreign_keys = ON")
-    # Set busy timeout to handle concurrent access
-    await db.execute("PRAGMA busy_timeout = 5000")
+    # Don't close connections here - let the retry logic handle that
+    # Just remove stale lock files if they exist and are old
+    
+    db_dir = os.path.dirname(DB_PATH)
+    db_name = os.path.basename(DB_PATH)
+    
+    # Possible lock files
+    lock_files = [
+        os.path.join(db_dir, db_name + "-wal"),
+        os.path.join(db_dir, db_name + "-shm"),
+    ]
+    
+    for lock_file in lock_files:
+        try:
+            if os.path.exists(lock_file):
+                # Try to remove stale lock files (only if they're not in use)
+                file_age = time.time() - os.path.getmtime(lock_file)
+                # Only remove files older than 2 minutes (likely stale)
+                if file_age > 120:
+                    print(f"[INFO] Removing stale lock file: {lock_file}")
+                    os.remove(lock_file)
+        except Exception as e:
+            # If we can't remove the file, it's probably in use by another process
+            # Don't warn about this - it's expected if the bot is already running
+            pass
+
+
+async def init_db():
+    """Create all tables if they don't exist with retry logic for database locks."""
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    
+    # Add retry logic for database locking
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            # Use a direct connection instead of the pool for initialization
+            db = await aiosqlite.connect(DB_PATH)
+            db.row_factory = aiosqlite.Row
+            
+            # Enable WAL mode for better concurrency
+            await db.execute("PRAGMA journal_mode = WAL")
+            # Enable foreign key constraints
+            await db.execute("PRAGMA foreign_keys = ON")
+            # Set busy timeout to handle concurrent access (increased to 10 seconds)
+            await db.execute("PRAGMA busy_timeout = 10000")
+            
+            break  # Success, exit retry loop
+        except aiosqlite.OperationalError as e:
+            if "locked" in str(e).lower():
+                if attempt < max_retries - 1:
+                    import time
+                    wait_time = (attempt + 1) * 2  # Exponential backoff: 2s, 4s, 6s, 8s
+                    print(f"[WARN] Database locked, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise Exception(f"Failed to connect to database after {max_retries} attempts: {e}")
+            else:
+                raise e
 
     await db.executescript("""
         -- Guild settings
@@ -153,7 +204,7 @@ async def init_db():
             verification_role INTEGER DEFAULT 0,
             verification_title TEXT DEFAULT 'Verification Required',
             verification_description TEXT DEFAULT 'Click the button below to verify yourself and gain access to the server.',
-            verification_color INTEGER DEFAULT 4488FF,
+            verification_color INTEGER DEFAULT 0x4488FF,
             verification_button_text TEXT DEFAULT 'Verify',
             raid_quarantine_channel INTEGER DEFAULT 0,
             raid_sensitivity_level INTEGER DEFAULT 5,
@@ -406,6 +457,16 @@ async def init_db():
             PRIMARY KEY (guild_id, bot_id)
         );
 
+        -- Role whitelist (whitelisted roles - members with these roles won't be punished)
+        CREATE TABLE IF NOT EXISTS role_whitelist (
+            guild_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            added_by INTEGER DEFAULT 0,
+            added_at TEXT DEFAULT '',
+            reason TEXT DEFAULT '',
+            PRIMARY KEY (guild_id, role_id)
+        );
+
         -- Backups metadata
         CREATE TABLE IF NOT EXISTS backups (
             backup_id TEXT PRIMARY KEY,
@@ -464,7 +525,7 @@ async def init_db():
         ("verification_role", "INTEGER DEFAULT 0"),
         ("verification_title", "TEXT DEFAULT 'Verification Required'"),
         ("verification_description", "TEXT DEFAULT 'Click the button below to verify yourself and gain access to the server.'"),
-        ("verification_color", "INTEGER DEFAULT 4488FF"),
+        ("verification_color", "INTEGER DEFAULT 0x4488FF"),
         ("verification_button_text", "TEXT DEFAULT 'Verify'"),
         ("raid_quarantine_channel", "INTEGER DEFAULT 0"),
         ("raid_sensitivity_level", "INTEGER DEFAULT 5"),
@@ -589,28 +650,6 @@ async def remove_whitelist(guild_id: int, user_id: int):
     await _release_db(db)
 
 
-async def get_whitelist(guild_id: int) -> List[Dict[str, Any]]:
-    db = await _get_db()
-    cursor = await db.execute(
-        "SELECT * FROM whitelist WHERE guild_id = ?",
-        (guild_id,),
-    )
-    rows = await cursor.fetchall()
-    await _release_db(db)
-    return [dict(row) for row in rows]
-
-
-async def get_whitelist_entry(guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
-    db = await _get_db()
-    cursor = await db.execute(
-        "SELECT * FROM whitelist WHERE guild_id = ? AND user_id = ?",
-        (guild_id, user_id),
-    )
-    row = await cursor.fetchone()
-    await _release_db(db)
-    return dict(row) if row else None
-
-
 # ── Bot Whitelist ──
 async def add_bot_whitelist(guild_id: int, bot_id: int, added_by: int, reason: str = ""):
     db = await _get_db()
@@ -654,6 +693,105 @@ async def is_bot_whitelisted(guild_id: int, bot_id: int) -> bool:
     row = await cursor.fetchone()
     await _release_db(db)
     return row is not None
+
+
+# ── Role Whitelist ──
+async def add_role_whitelist(guild_id: int, role_id: int, added_by: int, reason: str = ""):
+    db = await _get_db()
+    await db.execute(
+        """INSERT OR REPLACE INTO role_whitelist
+           (guild_id, role_id, added_by, added_at, reason)
+           VALUES (?, ?, ?, ?, ?)""",
+        (guild_id, role_id, added_by, _now(), reason),
+    )
+    await db.commit()
+    await _release_db(db)
+
+
+async def remove_role_whitelist(guild_id: int, role_id: int):
+    db = await _get_db()
+    await db.execute(
+        "DELETE FROM role_whitelist WHERE guild_id = ? AND role_id = ?",
+        (guild_id, role_id),
+    )
+    await db.commit()
+    await _release_db(db)
+
+
+async def get_role_whitelist(guild_id: int) -> List[Dict[str, Any]]:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM role_whitelist WHERE guild_id = ?",
+        (guild_id,),
+    )
+    rows = await cursor.fetchall()
+    await _release_db(db)
+    return [dict(row) for row in rows]
+
+
+async def is_role_whitelisted(guild_id: int, role_id: int) -> bool:
+    db = await _get_db()
+    cursor = await db.execute(
+        "SELECT * FROM role_whitelist WHERE guild_id = ? AND role_id = ?",
+        (guild_id, role_id),
+    )
+    row = await cursor.fetchone()
+    await _release_db(db)
+    return row is not None
+
+
+async def user_has_whitelisted_role(guild_id: int, user_id: int, user_roles: List[int]) -> bool:
+    """Check if user has any whitelisted roles using optimized SQL query."""
+    if not user_roles:
+        return False
+    
+    # Optimized: Use SQL IN clause instead of fetching all roles
+    db = await _get_db()
+    placeholders = ','.join('?' * len(user_roles))
+    cursor = await db.execute(
+        f"SELECT COUNT(*) FROM role_whitelist WHERE guild_id = ? AND role_id IN ({placeholders})",
+        [guild_id] + user_roles
+    )
+    count = await cursor.fetchone()
+    await _release_db(db)
+    
+    return count[0] > 0
+
+
+async def is_user_whitelisted_optimized(guild_id: int, user_id: int, is_bot: bool = False) -> bool:
+    """
+    Optimized single-query whitelist check combining all whitelist types.
+    
+    Returns True if user is whitelisted via any method:
+    - User whitelist with trust level >= 2
+    - Bot whitelist (if user is a bot)
+    - Role whitelist (requires user_roles to be passed separately)
+    """
+    # Check user whitelist with high trust
+    db = await _get_db()
+    
+    # Check user whitelist
+    cursor = await db.execute(
+        "SELECT trust_level FROM whitelist WHERE guild_id = ? AND user_id = ?",
+        (guild_id, user_id)
+    )
+    row = await cursor.fetchone()
+    if row and row[0] >= 2:
+        await _release_db(db)
+        return True
+    
+    # Check bot whitelist if user is a bot
+    if is_bot:
+        cursor = await db.execute(
+            "SELECT 1 FROM bot_whitelist WHERE guild_id = ? AND bot_id = ?",
+            (guild_id, user_id)
+        )
+        if await cursor.fetchone():
+            await _release_db(db)
+            return True
+    
+    await _release_db(db)
+    return False
 
 
 # ── User Notes ──

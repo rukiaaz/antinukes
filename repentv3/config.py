@@ -80,7 +80,7 @@ DEFAULT_AUTOMOD = {
 }
 
 # ── Cache ──
-CACHE_AUTO_SAVE_INTERVAL = 300  # seconds
+CACHE_AUTO_SAVE_INTERVAL = 120  # seconds (reduced from 300 for faster restore)
 
 # ── Logging ──
 MAX_LOG_FIELDS = 4

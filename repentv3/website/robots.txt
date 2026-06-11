@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /style.css
+Disallow: /script.js
+Allow: /

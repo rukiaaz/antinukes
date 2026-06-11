@@ -16,6 +16,7 @@ from utils.cache import snapshot_guild
 from utils.logger import get_logger
 from utils.health_check import get_health_checker
 from utils.cache_layer import get_cache_layer
+from utils.rate_limiter import set_cache_layer_for_rate_limiter
 
 
 class Repent(commands.Bot):
@@ -36,7 +37,7 @@ class Repent(commands.Bot):
         self._shutdown_event = asyncio.Event()
 
     async def setup_hook(self):
-        # Initialize database
+        # Initialize database with retry logic
         await init_db()
         await purge_old_data()
         self.logger.info("Database initialized and old data purged")
@@ -49,6 +50,10 @@ class Repent(commands.Bot):
         cache_layer = get_cache_layer()
         await cache_layer.start()
         self.logger.info("Cache layer initialized")
+        
+        # Set cache layer for rate limiter
+        set_cache_layer_for_rate_limiter(cache_layer)
+        self.logger.info("Rate limiter integrated with cache layer")
 
         # Load all cogs (guard against duplicate loads)
         cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
@@ -103,6 +108,10 @@ class Repent(commands.Bot):
         self.logger.info(f"Users: {sum(g.member_count for g in self.guilds)}")
         self.logger.info("=" * 50)
 
+        # Permission validation for each guild
+        for guild in self.guilds:
+            await self._validate_guild_permissions(guild)
+
         # Initial cache snapshot for all guilds
         for guild in self.guilds:
             try:
@@ -143,6 +152,48 @@ class Repent(commands.Bot):
 
     async def on_guild_remove(self, guild: discord.Guild):
         self.logger.info(f"Left guild: {guild.name} ({guild.id})")
+
+    async def _validate_guild_permissions(self, guild: discord.Guild):
+        """Validate bot permissions and log warnings for missing permissions."""
+        bot_member = guild.me
+        missing_permissions = []
+        
+        # Critical permissions for antinuke
+        critical_permissions = [
+            ("administrator", "Administrator"),
+            ("ban_members", "Ban Members"),
+            ("kick_members", "Kick Members"),
+            ("manage_roles", "Manage Roles"),
+            ("manage_channels", "Manage Channels"),
+            ("view_audit_log", "View Audit Log"),
+        ]
+        
+        for perm_name, perm_display in critical_permissions:
+            if not getattr(bot_member.guild_permissions, perm_name, False):
+                missing_permissions.append(perm_display)
+        
+        if missing_permissions:
+            self.logger.warning(
+                f"Guild {guild.name} ({guild.id}) is missing critical permissions: "
+                f"{', '.join(missing_permissions)}. Antinuke may not function properly."
+            )
+            
+            # Try to notify the owner
+            try:
+                owner = guild.get_member(guild.owner_id)
+                if owner:
+                    embed = discord.Embed(
+                        title="⚠️ Missing Permissions Warning",
+                        description=f"{self.user.name} is missing critical permissions in **{guild.name}**:\n\n"
+                                    f"```\n{chr(10).join(f'• {perm}' for perm in missing_permissions)}\n```\n\n"
+                                    f"Please grant these permissions for full antinuke protection.",
+                        color=0xFFAA00
+                    )
+                    await owner.send(embed=embed)
+            except Exception as e:
+                self.logger.error(f"Failed to send permission warning to owner of {guild.id}: {e}")
+        else:
+            self.logger.info(f"Guild {guild.name} ({guild.id}) has all required permissions.")
 
     async def on_member_join(self, member: discord.Member):
         """Check hardbans immediately on join."""

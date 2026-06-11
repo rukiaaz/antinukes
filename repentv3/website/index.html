@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Balance - Discord Security Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loading-screen">
+        <div class="loading-logo">⚖ Balance</div>
+        <div class="loading-bar">
+            <div class="loading-progress"></div>
+        </div>
+    </div>
+
+    <!-- Floating Shapes Background -->
+    <div class="floating-shapes">
+        <div class="shape shape-1"></div>
+        <div class="shape shape-2"></div>
+        <div class="shape shape-3"></div>
+    </div>
+
+    <!-- Header -->
+    <header>
+        <a href="#" class="logo">
+            <div class="logo-icon">⚖</div>
+            Balance
+        </a>
+        <nav>
+            <a href="#features">Features</a>
+            <a href="#commands">Commands</a>
+            <a href="#invite">Invite</a>
+            <a href="https://discord.gg/yourserver" class="nav-cta" target="_blank">Support</a>
+        </nav>
+        <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
+    </header>
+
+    <!-- Mobile Navigation -->
+    <div class="mobile-nav" id="mobile-nav">
+        <a href="#features" onclick="toggleMobileMenu()">Features</a>
+        <a href="#commands" onclick="toggleMobileMenu()">Commands</a>
+        <a href="#invite" onclick="toggleMobileMenu()">Invite</a>
+        <a href="https://discord.gg/yourserver" onclick="toggleMobileMenu()" target="_blank">Support</a>
+    </div>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <canvas class="particles-canvas" id="particles"></canvas>
+        <div class="hero-content">
+            <h1 class="hero-title">Balance Your Discord Security</h1>
+            <p class="hero-subtitle">
+                Advanced protection bot that keeps your server safe while maintaining perfect equilibrium between security and user experience.
+            </p>
+            <div class="hero-buttons">
+                <a href="https://discord.com/api/oauth2/authorize?client_id=YOUR_BOT_ID&permissions=8&scope=bot%20applications.commands" class="btn btn-primary" target="_blank">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M20.317 4.37a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.25a18.27 18.27 0 00-5.4868 0 12.864 12.864 0 00-.6177-1.246.077.077 0 00-.0785-.037 19.736 19.736 0 00-4.8852 1.514.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 3.993 3.8031 4.9785 6.3887a.0777.0777 0 00.0406.0575c-.5041.0937-1.0048.1972-1.4986.3026-.3785.0893-.7528.1762-1.1232.2634a.0758.0758 0 00-.0548.0356c-.9315 1.7437-1.6424 3.4475-2.0427 5.1218a.077.077 0 00.0249.0767c1.0111.6458 2.0947 1.0804 3.2192 1.2754a.0765.0765 0 00.0818-.0216c.3389-.8727.6774-1.7453 1.0136-2.6208a.0772.0772 0 00-.0656-.0561c-.7199.0467-1.4419.069-2.1668.069-1.4331 0-2.8621-.0503-4.2703-.1453a.0772.0772 0 00-.0656.0561c.3372.8774.6778 1.7528 1.0136 2.6294a.076.076 0 00.0818.0216c1.1252-.1944 2.2088-.6289 3.2192-1.2754a.077.077 0 00.0249-.0767c-.4158-1.6903-1.1353-3.4021-2.0428-5.1218a.0766.0766 0 00.0406-.0575c1.2716-.2346 2.5866-.3554 3.9267-.3554 1.3346 0 2.6494.1209 3.9147.3554a.077.077 0 00.0406.0575c-.9855 2.5856-2.9258 4.8812-4.9785 6.3887a.0759.0759 0 00.0312-.0561c.4184-4.478.4184-9.012.4184-9.012z"/>
+                    </svg>
+                    Add to Server
+                </a>
+                <a href="#features" class="btn btn-secondary">
+                    Learn More
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">🛡️</div>
+                <div class="stat-number">0.2s</div>
+                <div class="stat-label">Response Time</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🎯</div>
+                <div class="stat-number">99%</div>
+                <div class="stat-label">Detection Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🔒</div>
+                <div class="stat-number">0</div>
+                <div class="stat-label">Known Bypasses</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-number">24/7</div>
+                <div class="stat-label">Active Protection</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="section-header">
+            <h2 class="section-title">Powerful Features</h2>
+            <p class="section-subtitle">Everything you need to keep your Discord server secure and well-managed</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🛡️</div>
+                <h3 class="feature-title">Advanced Antinuke</h3>
+                <p class="feature-description">Audit-log based detection for mass actions, dangerous updates, and unauthorized changes. Impossible to bypass.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚔️</div>
+                <h3 class="feature-title">Anti-Raid System</h3>
+                <p class="feature-description">Smart raid detection with join rate monitoring, account age checks, and automatic lockdown protocols.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔨</div>
+                <h3 class="feature-title">Complete Moderation</h3>
+                <p class="feature-description">Full command suite with ban, kick, timeout, warn, purge, and advanced moderation tools.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3 class="feature-title">Smart AutoMod</h3>
+                <p class="feature-description">Intelligent spam detection, anti-mention, anti-invite filtering, and customizable content moderation.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">📊</div>
+                <h3 class="feature-title">Comprehensive Logging</h3>
+                <p class="feature-description">Rich embed logging for all server events with detailed information and search capabilities.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💾</div>
+                <h3 class="feature-title">Backup & Restore</h3>
+                <p class="feature-description">Automated server snapshots with selective restoration for channels and roles.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">✅</div>
+                <h3 class="feature-title">Verification System</h3>
+                <p class="feature-description">Custom verification with embeds, buttons, and configurable role assignment.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔧</div>
+                <h3 class="feature-title">Utility Commands</h3>
+                <p class="feature-description">User info, server stats, avatar display, role management, and helpful utility functions.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Commands Section -->
+    <section class="commands" id="commands">
+        <div class="section-header">
+            <h2 class="section-title">Popular Commands</h2>
+            <p class="section-subtitle">Essential commands to get started with Balance</p>
+        </div>
+        <div class="commands-container">
+            <div class="command-list">
+                <div class="command-item">
+                    <code class="command-code">/setup</code>
+                    <span class="command-description">Interactive setup wizard to configure your server quickly</span>
+                    <span class="command-icon">✨</span>
+                </div>
+                <div class="command-item">
+                    <code class="command-code">/antinuke enable</code>
+                    <span class="command-description">Enable antinuke protection for your server</span>
+                    <span class="command-icon">✨</span>
+                </div>
+                <div class="command-item">
+                    <code class="command-code">/whitelist add @user 2</code>
+                    <span class="command-description">Add a user to the whitelist with full immunity</span>
+                    <span class="command-icon">✨</span>
+                </div>
+                <div class="command-item">
+                    <code class="command-code">/ban @user [reason]</code>
+                    <span class="command-description">Ban a user from the server with optional reason</span>
+                    <span class="command-icon">✨</span>
+                </div>
+                <div class="command-item">
+                    <code class="command-code">/purge [count]</code>
+                    <span class="command-description">Delete a specified number of messages</span>
+                    <span class="command-icon">✨</span>
+                </div>
+                <div class="command-item">
+                    <code class="command-code">/restore</code>
+                    <span class="command-description">Restore deleted channels and roles from cache</span>
+                    <span class="command-icon">✨</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Invite Section -->
+    <section class="invite" id="invite">
+        <div class="invite-content">
+            <h2 class="invite-title">Ready to Protect Your Server?</h2>
+            <p class="invite-description">Add Balance to your Discord server and experience advanced security and moderation features.</p>
+            <a href="https://discord.com/api/oauth2/authorize?client_id=YOUR_BOT_ID&permissions=8&scope=bot%20applications.commands" class="invite-btn" target="_blank">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20.317 4.37a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.25a18.27 18.27 0 00-5.4868 0 12.864 12.864 0 00-.6177-1.246.077.077 0 00-.0785-.037 19.736 19.736 0 00-4.8852 1.514.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 3.993 3.8031 4.9785 6.3887a.0777.0777 0 00.0406.0575c-.5041.0937-1.0048.1972-1.4986.3026-.3785.0893-.7528.1762-1.1232.2634a.0758.0758 0 00-.0548.0356c-.9315 1.7437-1.6424 3.4475-2.0427 5.1218a.077.077 0 00.0249.0767c1.0111.6458 2.0947 1.0804 3.2192 1.2754a.0765.0765 0 00.0818-.0216c.3389-.8727.6774-1.7453 1.0136-2.6208a.0772.0772 0 00-.0656-.0561c-.7199.0467-1.4419.069-2.1668.069-1.4331 0-2.8621-.0503-4.2703-.1453a.0772.0772 0 00-.0656.0561c.3372.8774.6778 1.7528 1.0136 2.6294a.076.076 0 00.0818.0216c1.1252-.1944 2.2088-.6289 3.2192-1.2754a.077.077 0 00.0249-.0767c-.4158-1.6903-1.1353-3.4021-2.0428-5.1218a.0766.0766 0 00.0406-.0575c1.2716-.2346 2.5866-.3554 3.9267-.3554 1.3346 0 2.6494.1209 3.9147.3554a.077.077 0 00.0406.0575c-.9855 2.5856-2.9258 4.8812-4.9785 6.3887a.0759.0759 0 00.0312-.0561c.4184-4.478.4184-9.012.4184-9.012z"/>
+                </svg>
+                Add Balance to Your Server
+            </a>
+            <div class="legal-buttons">
+                <a href="#" class="legal-btn" onclick="openModal('privacy')">Privacy Policy</a>
+                <a href="#" class="legal-btn" onclick="openModal('terms')">Terms of Service</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-links">
+            <a href="https://discord.gg/yourserver" target="_blank">Support Server</a>
+        </div>
+        <p class="footer-text">© 2026 Balance Security Bot. All rights reserved.</p>
+    </footer>
+
+    <!-- Privacy Policy Modal -->
+    <div class="modal-overlay" id="privacy-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">Privacy Policy</h2>
+                <button class="modal-close" onclick="closeModal('privacy')">&times;</button>
+            </div>
+            <div class="modal-content">
+                <h3>Data Collection</h3>
+                <p>We collect server configuration, user information for security purposes, and security logs. Data is used for protection, moderation, and service improvement.</p>
+                
+                <h3>Data Usage</h3>
+                <p>Your information is used solely for providing security and moderation features. We never sell or share your data with third parties.</p>
+                
+                <h3>Your Rights</h3>
+                <p>You can remove the bot from your server to delete all data. You can also request data deletion through our support channels.</p>
+                
+                <h3>Data Retention</h3>
+                <ul>
+                    <li>Security logs: 30 days</li>
+                    <li>Audit data: 90 days</li>
+                    <li>Punishment records: Until removed</li>
+                    <li>Backup data: User-configured</li>
+                </ul>
+                
+                <p style="margin-top: 20px; color: var(--text-light); font-size: 0.9rem;">
+                    For the complete privacy policy, please see our documentation.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Terms of Service Modal -->
+    <div class="modal-overlay" id="terms-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">Terms of Service</h2>
+                <button class="modal-close" onclick="closeModal('terms')">&times;</button>
+            </div>
+            <div class="modal-content">
+                <h3>Acceptable Use</h3>
+                <p>Use the bot for security and moderation purposes only. Configure according to Discord rules. Maintain proper permissions and review logs regularly.</p>
+                
+                <h3>Prohibited Activities</h3>
+                <p>Do not use the bot to harass others, target protected groups, bypass security features, exploit bugs, or spam Discord services.</p>
+                
+                <h3>Security Features</h3>
+                <p>The bot may automatically punish suspicious users. False positives can occur. You can override automated actions when needed. Configure thresholds appropriately.</p>
+                
+                <h3>Limitations</h3>
+                <p>The service is provided "as is" without warranties. We are not liable for data loss, moderation errors, or service interruptions. No system is 100% secure against all threats.</p>
+                
+                <p style="margin-top: 20px; color: var(--text-light); font-size: 0.9rem;">
+                    By using this bot, you agree to these terms. For the complete terms of service, please see our documentation.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
